@@ -47,7 +47,6 @@ services:
       - --db_port=5432
       - --db_user=odoo
       - --db_password=odoo
-      - --admin_passwd=admin
 
   # ──────────────────────────────────────────────
   # Foggy MCP Server (Java) — with built-in Odoo models

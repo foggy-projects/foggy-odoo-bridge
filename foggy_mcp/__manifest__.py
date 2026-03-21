@@ -50,11 +50,12 @@ Data Privacy Notice:
     'data': [
         'security/ir.model.access.csv',
         'security/foggy_security.xml',
-        'views/foggy_api_key_views.xml',
-        'views/foggy_config_views.xml',
-        'wizard/foggy_setup_wizard_views.xml',
-        'views/foggy_chat_views.xml',
+        'data/foggy_menus.xml',
         'views/connection_test_result_views.xml',
+        'wizard/foggy_setup_wizard_views.xml',
+        'views/foggy_config_views.xml',
+        'views/foggy_api_key_views.xml',
+        'views/foggy_chat_views.xml',
         'data/foggy_data.xml',
     ],
     'assets': {

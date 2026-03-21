@@ -25,12 +25,12 @@ class ResConfigSettings(models.TransientModel):
     # ── 引擎模式 ──────────────────────────────────────
 
     foggy_engine_mode = fields.Selection([
+        ('embedded', '内嵌模式（Python 引擎，推荐）'),
         ('gateway', '网关模式（需要外部服务器）'),
-        ('embedded', '内嵌模式（Python 引擎）'),
     ], string='引擎模式',
         config_parameter='foggy_mcp.engine_mode',
-        default='gateway',
-        help='网关模式通过 HTTP 转发到外部 Foggy 服务器；内嵌模式使用 Python 引擎直接在 Odoo 进程内运行。',
+        default='embedded',
+        help='内嵌模式使用 Python 引擎直接在 Odoo 进程内运行，零外部依赖（推荐）；网关模式通过 HTTP 转发到外部 Foggy 服务器。',
     )
 
     foggy_embedded_available = fields.Boolean(
@@ -42,7 +42,7 @@ class ResConfigSettings(models.TransientModel):
     def _compute_embedded_available(self):
         for rec in self:
             try:
-                import foggy.mcp.spi  # noqa: F401
+                import foggy.mcp_spi  # noqa: F401
                 rec.foggy_embedded_available = True
             except ImportError:
                 rec.foggy_embedded_available = False
@@ -183,9 +183,9 @@ class ResConfigSettings(models.TransientModel):
     def set_values(self):
         """保存设置时，如果引擎模式发生变更则重置单例。"""
         ICP = self.env['ir.config_parameter'].sudo()
-        old_mode = ICP.get_param('foggy_mcp.engine_mode', 'gateway')
+        old_mode = ICP.get_param('foggy_mcp.engine_mode', 'embedded')
         res = super().set_values()
-        new_mode = ICP.get_param('foggy_mcp.engine_mode', 'gateway')
+        new_mode = ICP.get_param('foggy_mcp.engine_mode', 'embedded')
         if old_mode != new_mode:
             _logger.info("引擎模式已变更：%s → %s，重置单例", old_mode, new_mode)
             from ..controllers.mcp_controller import _reset_singletons

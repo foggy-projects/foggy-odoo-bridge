@@ -20,21 +20,20 @@ from . import wizard  # noqa: F401
 _logger = logging.getLogger(__name__)
 
 
-def post_init_hook(cr, registry):
+def post_init_hook(env):
     """
     Post-init hook to ensure safe module installation.
 
-    This hook runs after module installation/upgrade and handles:
+    Odoo 17 passes a single `env` argument (not cr, registry).
+    Handles:
     1. Ensures config parameters have default values
     2. Logs successful installation for troubleshooting
-
-    This prevents crashes when new fields are added to res.config.settings
-    without manual database migration.
     """
     _logger.info("Foggy MCP Gateway: Running post-init hook...")
 
+    cr = env.cr
+
     # Set default config parameters if not exists
-    # These are read via ir.config_parameter, so they don't need DB columns
     default_params = {
         'foggy_mcp.server_url': '',
         'foggy_mcp.endpoint_path': '/mcp/analyst/rpc',
@@ -42,7 +41,7 @@ def post_init_hook(cr, registry):
         'foggy_mcp.namespace': 'odoo',
         'foggy_mcp.cache_ttl': '300',
         'foggy_mcp.auth_token': '',
-        'foggy_mcp.engine_mode': 'embedded',  # 内嵌模式为默认（引擎已内置）
+        'foggy_mcp.engine_mode': 'embedded',
         'foggy_mcp.llm_provider': 'openai',
         'foggy_mcp.llm_api_key': '',
         'foggy_mcp.llm_model': 'gpt-4o-mini',
@@ -65,5 +64,4 @@ def post_init_hook(cr, registry):
 
         _logger.info("Foggy MCP Gateway: Post-init hook completed successfully")
     except Exception as e:
-        # Log but don't fail - the module can still work
         _logger.warning("Foggy MCP Gateway: Post-init hook encountered an issue: %s", e)

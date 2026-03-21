@@ -23,7 +23,7 @@ def create_backend(env) -> EngineBackend:
         EngineBackend: 网关或内嵌引擎实例
     """
     ICP = env['ir.config_parameter'].sudo()
-    mode = ICP.get_param('foggy_mcp.engine_mode', 'gateway')
+    mode = ICP.get_param('foggy_mcp.engine_mode', 'embedded')
 
     if mode == 'embedded':
         return _create_embedded_backend(env)

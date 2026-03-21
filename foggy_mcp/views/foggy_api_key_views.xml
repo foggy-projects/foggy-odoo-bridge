@@ -114,12 +114,6 @@
               sequence="20"
               groups="base.group_user"/>
 
-    <!-- 管理员菜单（位于设置下） -->
-    <menuitem id="foggy_mcp_menu_root"
-              name="Foggy MCP"
-              parent="base.menu_administration"
-              sequence="100"/>
-
     <menuitem id="foggy_mcp_menu_api_keys"
               name="API 密钥（所有用户）"
               parent="foggy_mcp_menu_root"

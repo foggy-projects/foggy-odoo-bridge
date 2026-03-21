@@ -4,9 +4,12 @@ Embedded Backend — 内嵌模式实现
 
 直接在 Odoo 进程内运行 foggy-dataset-py 查询引擎，无需外部服务器。
 
-依赖：foggy-python（pip install foggy-python）
-数据库：使用 asyncpg 独立连接池连接 Odoo 的 PostgreSQL（只读）
-异步桥接：SemanticQueryService 内置 async→sync 桥接，无需额外处理
+调用层次（遵循 Python 团队分层设计）：
+    EmbeddedBackend → LocalDatasetAccessor（dict 入参）
+                        → SemanticQueryService（强类型，内部）
+
+不直接调用 SemanticQueryService 的查询方法，
+统一通过 LocalDatasetAccessor 桥接（接受标准 JSON dict，与 Java 签名一致）。
 """
 import json
 import logging
@@ -36,8 +39,8 @@ class EmbeddedBackend(EngineBackend):
 
         try:
             from foggy.dataset_model.semantic.service import SemanticQueryService
-            from foggy.mcp.spi import LocalDatasetAccessor
             from foggy.dataset.db.executor import create_executor_from_url
+            from foggy.mcp_spi import LocalDatasetAccessor
         except ImportError as e:
             raise ImportError(
                 f"foggy-python 未安装或版本不兼容：{e}\n"
@@ -51,7 +54,7 @@ class EmbeddedBackend(EngineBackend):
         _logger.info("内嵌引擎初始化：连接 %s@%s:%s/%s",
                       c['user'], c['host'], c['port'], c['database'])
 
-        # 创建引擎
+        # 创建引擎 + Accessor 桥接层
         executor = create_executor_from_url(url)
         self._service = SemanticQueryService(executor=executor)
         self._accessor = LocalDatasetAccessor(self._service)
@@ -125,10 +128,14 @@ class EmbeddedBackend(EngineBackend):
     def get_mode(self):
         return 'embedded'
 
-    # ── 工具处理方法 ────────────────────────────────────
+    # ── 工具处理方法（通过 LocalDatasetAccessor 调用）────
 
     def _handle_query(self, arguments):
-        """处理 dataset.query_model 调用。"""
+        """处理 dataset.query_model 调用。
+
+        通过 LocalDatasetAccessor.query_model(model, payload_dict)，
+        payload 使用 Java camelCase 格式，内部自动转换为 SemanticQueryRequest。
+        """
         model = arguments.get('model')
         payload = arguments.get('payload', {})
 
@@ -140,11 +147,8 @@ class EmbeddedBackend(EngineBackend):
 
     def _handle_get_metadata(self, arguments):
         """处理 dataset.get_metadata 调用。"""
-        model_names = self._service.get_all_model_names()
-        metadata = {
-            'models': {name: {'factTable': name} for name in model_names}
-        }
-        return self._mcp_result(metadata)
+        response = self._accessor.get_metadata()
+        return self._mcp_result(response)
 
     def _handle_describe_model(self, arguments):
         """处理 dataset.describe_model_internal 调用。"""
@@ -152,7 +156,8 @@ class EmbeddedBackend(EngineBackend):
         if not model:
             return self._mcp_result("缺少 model 参数")
 
-        response = self._accessor.describe_model(model)
+        fmt = arguments.get('format', 'json')
+        response = self._accessor.describe_model(model, format=fmt)
         return self._mcp_result(response)
 
     def _handle_list_models(self):
@@ -164,11 +169,17 @@ class EmbeddedBackend(EngineBackend):
 
     @staticmethod
     def _mcp_result(data):
-        """将数据包装为 MCP 响应格式。"""
+        """将数据包装为 MCP 响应格式。支持 dict、str、Pydantic model。"""
         if isinstance(data, str):
             text = data
         elif isinstance(data, dict) or isinstance(data, list):
             text = json.dumps(data, ensure_ascii=False, default=str)
+        elif hasattr(data, 'model_dump'):
+            # Pydantic BaseModel（SemanticQueryResponse 等）
+            text = json.dumps(
+                data.model_dump(by_alias=True, exclude_none=True),
+                ensure_ascii=False, default=str,
+            )
         else:
             text = str(data)
 

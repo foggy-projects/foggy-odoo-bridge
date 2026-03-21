@@ -1,12 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-    <!-- Root menu under Settings for Foggy MCP -->
-    <menuitem id="foggy_mcp_config_menu_root"
-              name="Foggy MCP"
-              parent="base.menu_administration"
-              sequence="99"
-              groups="base.group_user"/>
-
     <!-- Extend Settings form to add Foggy MCP configuration -->
     <record id="res_config_settings_view_form_foggy" model="ir.ui.view">
         <field name="name">res.config.settings.view.form.foggy</field>

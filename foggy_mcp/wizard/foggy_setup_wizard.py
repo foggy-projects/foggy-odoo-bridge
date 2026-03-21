@@ -254,7 +254,7 @@ class FoggySetupWizard(models.TransientModel):
 
         # 读取当前引擎模式
         ICP = self.env['ir.config_parameter'].sudo()
-        engine_mode = ICP.get_param('foggy_mcp.engine_mode', 'gateway')
+        engine_mode = ICP.get_param('foggy_mcp.engine_mode', 'embedded')
 
         res.update({
             'engine_mode': engine_mode,
@@ -294,7 +294,7 @@ class FoggySetupWizard(models.TransientModel):
         # welcome 步骤切换模式时保存到 Settings
         if self.state == 'welcome':
             ICP = self.env['ir.config_parameter'].sudo()
-            old_mode = ICP.get_param('foggy_mcp.engine_mode', 'gateway')
+            old_mode = ICP.get_param('foggy_mcp.engine_mode', 'embedded')
             if old_mode != self.engine_mode:
                 ICP.set_param('foggy_mcp.engine_mode', self.engine_mode)
                 _logger.info("向导中切换引擎模式：%s → %s", old_mode, self.engine_mode)

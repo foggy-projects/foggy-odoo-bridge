@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <!-- Root menu under Settings for Foggy MCP (user-facing) -->
+    <menuitem id="foggy_mcp_config_menu_root"
+              name="Foggy MCP"
+              parent="base.menu_administration"
+              sequence="99"
+              groups="base.group_user"/>
+
+    <!-- Root admin menu under Settings -->
+    <menuitem id="foggy_mcp_menu_root"
+              name="Foggy MCP"
+              parent="base.menu_administration"
+              sequence="100"/>
+</odoo>
