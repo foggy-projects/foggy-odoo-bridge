@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <!-- 客户端操作 - OWL 聊天组件 -->
+    <record id="foggy_chat_action" model="ir.actions.client">
+        <field name="name">Foggy AI 对话</field>
+        <field name="tag">foggy_mcp.foggy_chat_action_client</field>
+    </record>
+
+    <!-- 菜单：AI 对话 — 位于设置 → Foggy MCP 下 -->
+    <menuitem id="foggy_mcp_user_menu_chat"
+              name="Foggy AI 对话"
+              parent="foggy_mcp_config_menu_root"
+              action="foggy_chat_action"
+              sequence="10"
+              groups="base.group_user"/>
+</odoo>

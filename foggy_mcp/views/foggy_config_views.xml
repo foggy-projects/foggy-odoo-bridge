@@ -1,0 +1,174 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <!-- Root menu under Settings for Foggy MCP -->
+    <menuitem id="foggy_mcp_config_menu_root"
+              name="Foggy MCP"
+              parent="base.menu_administration"
+              sequence="99"
+              groups="base.group_user"/>
+
+    <!-- Extend Settings form to add Foggy MCP configuration -->
+    <record id="res_config_settings_view_form_foggy" model="ir.ui.view">
+        <field name="name">res.config.settings.view.form.foggy</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="base.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <app string="Foggy MCP" name="foggy_mcp" groups="base.group_system">
+                    <block title="引擎模式">
+                        <setting string="引擎模式" help="选择查询引擎的运行方式">
+                            <div class="content-group">
+                                <div class="row mt16">
+                                    <field name="foggy_engine_mode" widget="radio" class="col-lg-8"/>
+                                </div>
+                                <field name="foggy_embedded_available" invisible="1"/>
+                                <div class="alert alert-info mt8" role="alert"
+                                     invisible="foggy_engine_mode != 'embedded' or not foggy_embedded_available">
+                                    <strong>内嵌模式：</strong> 查询引擎在 Odoo 进程内运行，无需外部服务器。
+                                </div>
+                                <div class="alert alert-warning mt8" role="alert"
+                                     invisible="foggy_engine_mode != 'embedded' or foggy_embedded_available">
+                                    <strong>⚠️ foggy-python 未安装。</strong>
+                                    请在 Odoo 的 Python 环境中运行：<code>pip install foggy-python</code>
+                                </div>
+                            </div>
+                        </setting>
+                    </block>
+                    <block title="快速设置">
+                        <setting string="设置向导"
+                                 help="逐步引导部署 Foggy MCP 服务器、初始化闭包表并验证连接">
+                            <div class="content-group">
+                                <div class="mt16">
+                                    <button name="%(foggy_setup_wizard_action)d"
+                                            string="启动设置向导"
+                                            type="action" class="btn-primary"/>
+                                </div>
+                            </div>
+                        </setting>
+                    </block>
+                    <block title="Foggy MCP 服务器连接"
+                           invisible="foggy_engine_mode == 'embedded'">
+                        <setting string="服务地址" help="Foggy MCP 服务器的基础 URL">
+                            <div class="content-group">
+                                <div class="row mt16">
+                                    <label for="foggy_mcp_url" class="col-lg-3"/>
+                                    <field name="foggy_mcp_url" class="col-lg-6"
+                                           placeholder="http://foggy-mcp:8080"/>
+                                </div>
+                            </div>
+                        </setting>
+                        <setting string="端点路径" help="MCP JSON-RPC 端点路径">
+                            <div class="content-group">
+                                <div class="row mt16">
+                                    <label for="foggy_mcp_endpoint" class="col-lg-3"/>
+                                    <field name="foggy_mcp_endpoint" class="col-lg-6"/>
+                                </div>
+                            </div>
+                        </setting>
+                        <setting string="请求超时" help="HTTP 超时时间（秒）">
+                            <div class="content-group">
+                                <div class="row mt16">
+                                    <label for="foggy_mcp_timeout" class="col-lg-3"/>
+                                    <field name="foggy_mcp_timeout" class="col-lg-3"/>
+                                </div>
+                            </div>
+                        </setting>
+                        <setting string="测试连接" help="验证与 Foggy MCP 服务器的连接">
+                            <div class="content-group">
+                                <div class="mt16">
+                                    <button name="action_test_connection"
+                                            string="测试连接"
+                                            type="object" class="btn-primary"/>
+                                </div>
+                                <field name="foggy_connection_status"
+                                       class="mt16"
+                                       nolabel="1"
+                                       colspan="2"/>
+                            </div>
+                        </setting>
+                    </block>
+                    <block title="高级设置"
+                           invisible="foggy_engine_mode == 'embedded'">
+                        <setting string="命名空间" help="Foggy Bundle 的模型命名空间">
+                            <div class="content-group">
+                                <div class="row mt16">
+                                    <label for="foggy_mcp_namespace" class="col-lg-3"/>
+                                    <field name="foggy_mcp_namespace" class="col-lg-4"/>
+                                </div>
+                            </div>
+                        </setting>
+                        <setting string="工具缓存时间" help="工具定义缓存时长（秒）">
+                            <div class="content-group">
+                                <div class="row mt16">
+                                    <label for="foggy_mcp_cache_ttl" class="col-lg-3"/>
+                                    <field name="foggy_mcp_cache_ttl" class="col-lg-3"/>
+                                </div>
+                            </div>
+                        </setting>
+                        <setting string="认证令牌" help="用于 Foggy MCP 服务器认证的 Bearer token（服务器未启用认证时留空）">
+                            <div class="content-group">
+                                <div class="row mt16">
+                                    <label for="foggy_mcp_auth_token" class="col-lg-3"/>
+                                    <field name="foggy_mcp_auth_token" class="col-lg-6" password="True"/>
+                                </div>
+                            </div>
+                        </setting>
+                    </block>
+                    <block title="AI 对话（LLM 配置）">
+                        <setting string="LLM 提供商" help="选择内置对话功能的 AI 模型提供商">
+                            <div class="content-group">
+                                <div class="row mt16">
+                                    <label for="foggy_llm_provider" class="col-lg-3"/>
+                                    <field name="foggy_llm_provider" class="col-lg-4"/>
+                                </div>
+                            </div>
+                        </setting>
+                        <setting string="API 密钥" help="所选 LLM 提供商的 API 密钥">
+                            <div class="content-group">
+                                <div class="row mt16">
+                                    <label for="foggy_llm_api_key" class="col-lg-3"/>
+                                    <field name="foggy_llm_api_key" class="col-lg-6" password="True"/>
+                                </div>
+                            </div>
+                        </setting>
+                        <setting string="模型名称" help="模型标识符（如 gpt-4o-mini、claude-3-5-sonnet、deepseek-chat）">
+                            <div class="content-group">
+                                <div class="row mt16">
+                                    <label for="foggy_llm_model" class="col-lg-3"/>
+                                    <field name="foggy_llm_model" class="col-lg-4"
+                                           placeholder="gpt-4o-mini"/>
+                                </div>
+                            </div>
+                        </setting>
+                        <setting string="API 基础地址" help="自定义端点 URL（Ollama 和自定义提供商必填）">
+                            <div class="content-group">
+                                <div class="row mt16">
+                                    <label for="foggy_llm_base_url" class="col-lg-3"/>
+                                    <field name="foggy_llm_base_url" class="col-lg-6"
+                                           placeholder="http://localhost:11434/v1"/>
+                                </div>
+                            </div>
+                        </setting>
+                        <setting string="温度" help="控制随机性（0.0 = 确定性，1.0 = 创造性）">
+                            <div class="content-group">
+                                <div class="row mt16">
+                                    <label for="foggy_llm_temperature" class="col-lg-3"/>
+                                    <field name="foggy_llm_temperature" class="col-lg-2"/>
+                                </div>
+                            </div>
+                        </setting>
+                        <setting string="业务上下文"
+                                 help="注入每次 AI 对话的自定义业务知识，在此定义 KPI、术语和规则。">
+                            <div class="content-group">
+                                <div class="row mt16">
+                                    <field name="foggy_llm_custom_prompt" class="col-lg-9"
+                                           placeholder="示例：&#10;- 大客户 = 年销售额 > 50 万&#10;- 活跃客户 = 最近 90 天有订单&#10;- 财年从 4 月开始&#10;- 研发部包含 QA 和 DevOps 团队"/>
+                                </div>
+                            </div>
+                        </setting>
+                    </block>
+                </app>
+            </xpath>
+        </field>
+    </record>
+</odoo>

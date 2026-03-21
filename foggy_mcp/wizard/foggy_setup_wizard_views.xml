@@ -1,0 +1,349 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+
+    <!-- ═══════════════════════════════════════════════════════════════
+         Setup Wizard Form View
+         ═══════════════════════════════════════════════════════════════ -->
+    <record id="foggy_setup_wizard_view_form" model="ir.ui.view">
+        <field name="name">foggy.setup.wizard.form</field>
+        <field name="model">foggy.setup.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Foggy MCP 设置向导">
+                <field name="state" invisible="1"/>
+                <field name="engine_mode" invisible="1"/>
+                <field name="embedded_available" invisible="1"/>
+
+                <header>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="welcome,deploy,connection,datasource,closure,done"
+                           invisible="engine_mode == 'embedded'"/>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="welcome,closure,done"
+                           invisible="engine_mode != 'embedded'"/>
+                </header>
+
+                <sheet>
+                    <!-- 第 1 步：欢迎 -->
+                    <div invisible="state != 'welcome'">
+                        <div class="oe_title mb24">
+                            <h2>欢迎使用 Foggy MCP</h2>
+                            <p class="text-muted">
+                                本向导将帮助您将 Odoo 连接到 Claude、Cursor 等 AI 助手。
+                            </p>
+                        </div>
+
+                        <!-- 引擎模式选择 -->
+                        <group string="选择引擎模式" col="2">
+                            <field name="engine_mode" widget="radio" nolabel="1"/>
+                        </group>
+
+                        <!-- 网关模式提示 -->
+                        <div class="alert alert-info" role="alert"
+                             invisible="engine_mode != 'gateway'">
+                            <strong>您需要准备：</strong>
+                            <ul class="mb0 mt4">
+                                <li>服务器已安装 Docker</li>
+                                <li>可执行终端命令</li>
+                                <li>约 2 分钟</li>
+                            </ul>
+                        </div>
+
+                        <!-- 内嵌模式提示 -->
+                        <div class="alert alert-success" role="alert"
+                             invisible="engine_mode != 'embedded' or not embedded_available">
+                            <strong>✅ 内嵌模式就绪</strong>
+                            <p class="mb0 mt4">
+                                查询引擎将在 Odoo 进程内运行，无需部署外部服务器。
+                                点击「下一步」即可开始使用。
+                            </p>
+                        </div>
+                        <div class="alert alert-warning" role="alert"
+                             invisible="engine_mode != 'embedded' or embedded_available">
+                            <strong>⚠️ foggy-python 未安装</strong>
+                            <p class="mb0 mt4">
+                                请在 Odoo 的 Python 环境中运行：<code>pip install foggy-python</code>
+                            </p>
+                        </div>
+
+                        <!-- 内嵌引擎测试结果 -->
+                        <group string="引擎状态" invisible="not embedded_status">
+                            <field name="embedded_status" nolabel="1"
+                                   widget="text" readonly="1"/>
+                        </group>
+                    </div>
+
+                    <!-- 第 2 步：部署 -->
+                    <div invisible="state != 'deploy'">
+                        <div class="oe_title mb16">
+                            <h2>部署 Foggy MCP 服务器</h2>
+                            <p class="text-muted">
+                                已从 Odoo 配置中检测到数据库连接信息，如需调整请修改后在终端运行以下命令。
+                            </p>
+                        </div>
+
+                        <!-- Docker 网络检测 - 真实网络名称（Docker socket 已挂载） -->
+                        <div invisible="not docker_network_name" class="alert alert-success mb16" role="alert">
+                            <strong>✓ 已检测到 Docker 网络：</strong>
+                            <span>Odoo 正运行在 Docker 网络 <code><field name="docker_network_name"/></code> 中</span>
+                            <br/>
+                            <small>Foggy MCP 将自动加入此网络以实现无缝通信。</small>
+                        </div>
+
+                        <!-- Docker 网络检测 - 推断（无 Docker socket） -->
+                        <div invisible="not docker_network_detected or docker_network_name" class="alert alert-warning mb16" role="alert">
+                            <strong>⚠️ 检测到 Docker 环境（未挂载 Socket）</strong>
+                            <br/>
+                            <small>Odoo 正运行在 Docker 中，但 Docker socket 未挂载。
+                            生成的命令包含网络占位符，您需要手动查找网络名称。</small>
+                            <br/>
+                            <code style="margin-top: 4px; display: inline-block;">docker network ls</code>
+                        </div>
+
+                        <!-- 连接模式选择 -->
+                        <group string="连接模式" col="2">
+                            <field name="connection_mode" widget="radio"/>
+                        </group>
+
+                        <!-- Docker 网络模式设置 -->
+                        <div invisible="connection_mode != 'docker'" class="mb16">
+                            <group string="▼ Docker 网络设置" col="4">
+                                <field name="docker_network_input"
+                                       placeholder="odoo_default"
+                                       help="输入 Docker 网络名称，运行 `docker network ls` 查看可用网络"/>
+                            </group>
+                            <div class="alert alert-info mb8" role="alert">
+                                <strong>💡 说明：</strong>
+                                <span class="text-muted">Foggy 容器将加入此网络，通过 Docker 服务名访问数据库。</span>
+                            </div>
+                        </div>
+
+                        <!-- 直接 IP 连接模式设置 -->
+                        <div invisible="connection_mode != 'direct_ip'" class="mb16">
+                            <group string="▼ 直接 IP 连接设置" col="4">
+                                <field name="custom_db_host"
+                                       placeholder="192.168.1.100"
+                                       help="输入 Odoo 数据库的 IP 地址"/>
+                            </group>
+                            <div class="alert alert-info mb8" role="alert">
+                                <strong>💡 说明：</strong>
+                                <span class="text-muted">Foggy 容器将通过 IP 地址直接访问数据库，适合生产环境。</span>
+                            </div>
+                        </div>
+
+                        <!-- 数据库配置（从 Odoo 自动读取，只读） -->
+                        <group string="▼ 从 Odoo 配置自动读取（只读）" col="6">
+                            <field name="db_host" readonly="1" force_save="1"/>
+                            <field name="db_port" readonly="1" force_save="1"/>
+                            <field name="db_user" readonly="1" force_save="1"/>
+                            <field name="db_password" password="True" readonly="1" force_save="1"/>
+                            <field name="db_name" readonly="1" force_save="1"/>
+                            <field name="foggy_port"/>
+                        </group>
+
+                        <!-- 隐藏字段 -->
+                        <field name="docker_network_name" invisible="1"/>
+                        <field name="docker_network_mode" invisible="1"/>
+                        <field name="docker_network_detected" invisible="1"/>
+                        <field name="docker_socket_available" invisible="1"/>
+
+                        <group>
+                            <button name="action_regenerate_command" string="重新生成命令"
+                                    type="object" class="btn-secondary btn-sm"/>
+                        </group>
+
+                        <separator string="在终端中运行以下命令"/>
+                        <field name="deploy_command"
+                               widget="ace" options="{'mode': 'sh'}"
+                               readonly="1" nolabel="1"
+                               class="mb16"/>
+
+                        <div class="alert alert-secondary" role="alert">
+                            <strong>操作步骤：</strong>
+                            <ol class="mb0 mt4">
+                                <li>点击上方代码框，按 <code>Ctrl+A</code> 全选，再按 <code>Ctrl+C</code> 复制</li>
+                                <li>打开终端（SSH 或本地终端）</li>
+                                <li>粘贴并按回车执行</li>
+                                <li>等待出现 "Started" 信息后，点击下方「下一步」</li>
+                            </ol>
+                        </div>
+                    </div>
+
+                    <!-- 第 3 步：连接测试 -->
+                    <div invisible="state != 'connection'">
+                        <div class="oe_title mb16">
+                            <h2>测试连接</h2>
+                            <p class="text-muted">
+                                验证 Foggy MCP 服务器是否正常运行，连接成功后配置将自动保存。
+                            </p>
+                        </div>
+
+                        <!-- Docker 网络提示 - 真实网络 -->
+                        <div invisible="not docker_network_name" class="alert alert-info mb8" role="alert">
+                            <strong>提示：</strong> 由于两个容器在同一网络 <code><field name="docker_network_name"/></code> 中，
+                            请使用 <code>http://foggy-mcp:8080</code> 作为 URL。
+                        </div>
+
+                        <!-- Docker 网络提示 - 无 socket 但在 Docker 中 -->
+                        <div invisible="not docker_network_detected or docker_network_name" class="alert alert-info mb8" role="alert">
+                            <strong>提示：</strong> 两个容器在同一 Docker 网络中，
+                            请使用 <code>http://foggy-mcp:8080</code> 作为 URL。
+                        </div>
+
+                        <group string="Foggy MCP 服务地址">
+                            <field name="foggy_url" placeholder="http://localhost:7108"/>
+                        </group>
+
+                        <group string="测试结果" invisible="not connection_status">
+                            <field name="connection_status" nolabel="1"
+                                   widget="text" readonly="1"/>
+                        </group>
+
+                        <div invisible="connection_status" class="alert alert-warning" role="alert">
+                            点击下方 <strong>测试连接</strong> 按钮进行验证。
+                        </div>
+
+                        <!-- 手动保存按钮 - 测试成功后显示 -->
+                        <div invisible="not connection_status or '❌' in connection_status" class="alert alert-success mb16" role="alert">
+                            <strong>✅ 测试成功！</strong>
+                            <p class="mb0 mt4">
+                                配置已自动保存。如需手动保存当前配置，请点击下方按钮。
+                            </p>
+                        </div>
+
+                        <group invisible="not connection_status or '❌' in connection_status">
+                            <button name="action_save_connection" string="保存当前配置"
+                                    type="object" class="btn-secondary"/>
+                        </group>
+                    </div>
+
+                    <!-- 第 4 步：数据源 -->
+                    <div invisible="state != 'datasource'">
+                        <div class="oe_title mb16">
+                            <h2>配置数据源</h2>
+                            <p class="text-muted">
+                                将 Odoo 数据库注册为 Foggy MCP 服务器的数据源。
+                            </p>
+                        </div>
+
+                        <!-- 连接模式摘要 -->
+                        <div class="alert alert-info mb16" role="alert">
+                            <strong>当前连接模式：</strong>
+                            <span invisible="connection_mode != 'docker'">
+                                <strong>Docker 网络模式</strong> - Foggy 容器通过 Docker 网络访问数据库
+                                <br/>
+                                <small>数据库主机：<code>postgres</code>（或从 Odoo 配置读取的服务名）</small>
+                            </span>
+                            <span invisible="connection_mode != 'direct_ip'">
+                                <strong>直接 IP 连接</strong> - Foggy 容器通过 IP 地址访问数据库
+                                <br/>
+                                <small>数据库主机：<code><field name="custom_db_host" class="font-weight-bold"/></code></small>
+                            </span>
+                        </div>
+
+                        <!-- 数据源配置预览 -->
+                        <group string="数据源配置预览" col="4">
+                            <field name="db_host" readonly="1" force_save="1" string="数据库主机"/>
+                            <field name="db_port" readonly="1" force_save="1" string="数据库端口"/>
+                            <field name="db_user" readonly="1" force_save="1" string="数据库用户"/>
+                            <field name="db_name" readonly="1" force_save="1" string="数据库名称"/>
+                        </group>
+
+                        <group>
+                            <button name="action_configure_datasource"
+                                    string="注册数据源"
+                                    type="object" class="btn-primary"/>
+                        </group>
+
+                        <group string="注册结果" invisible="not datasource_status">
+                            <field name="datasource_status" nolabel="1"
+                                   widget="text" readonly="1"/>
+                        </group>
+                    </div>
+
+                    <!-- 第 5 步：闭包表 -->
+                    <div invisible="state != 'closure'">
+                        <div class="oe_title mb16">
+                            <h2>初始化闭包表</h2>
+                            <p class="text-muted">
+                                层级查询（公司树、部门树等）需要闭包表支持。
+                            </p>
+                        </div>
+
+                        <group>
+                            <button name="action_init_closure_tables"
+                                    string="初始化闭包表"
+                                    type="object" class="btn-primary"
+                                    confirm="将在数据库中创建 4 张闭包表，是否继续？"/>
+                        </group>
+
+                        <group string="执行结果" invisible="not closure_status">
+                            <field name="closure_status" nolabel="1"
+                                   widget="text" readonly="1"/>
+                        </group>
+
+                        <div class="alert alert-secondary" role="alert">
+                            <strong>闭包表：</strong> res_company_closure、hr_department_closure、hr_employee_closure、res_partner_closure
+                            <br/><br/>
+                            <strong>提示：</strong> 如果不需要层级查询，可跳过此步骤，后续随时可在设置中执行。
+                        </div>
+                    </div>
+
+                    <!-- 第 6 步：完成 -->
+                    <div invisible="state != 'done'">
+                        <div class="oe_title mb16">
+                            <h2>🎉 设置完成！</h2>
+                        </div>
+                        <div class="alert alert-success" role="alert">
+                            <p><strong>Foggy MCP 已就绪。</strong></p>
+                            <p class="mt8 mb0">
+                                下一步：创建 API 密钥，连接您的 AI 助手。
+                            </p>
+                        </div>
+                    </div>
+                </sheet>
+
+                <!-- 底部按钮 -->
+                <footer>
+                    <button name="action_next" string="下一步 →"
+                            type="object" class="btn-primary"
+                            invisible="state not in ('welcome', 'deploy', 'connection', 'datasource')"/>
+                    <button name="action_test_connection" string="测试连接"
+                            type="object" class="btn-primary"
+                            invisible="state != 'connection'"/>
+                    <button name="action_configure_datasource" string="注册数据源"
+                            type="object" class="btn-primary"
+                            invisible="state != 'datasource'"/>
+                    <button name="action_init_closure_tables" string="初始化闭包表"
+                            type="object" class="btn-primary"
+                            invisible="state != 'closure'"/>
+                    <button name="action_skip_closure" string="跳过"
+                            type="object" class="btn-secondary"
+                            invisible="state != 'closure'"/>
+                    <button name="action_finish" string="创建 API 密钥"
+                            type="object" class="btn-success"
+                            invisible="state != 'done'"/>
+                    <button name="action_prev" string="← 上一步"
+                            type="object" class="btn-secondary"
+                            invisible="state in ('welcome', 'done')"/>
+                    <button string="取消" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <!-- Action -->
+    <record id="foggy_setup_wizard_action" model="ir.actions.act_window">
+        <field name="name">Foggy MCP 设置向导</field>
+        <field name="res_model">foggy.setup.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <!-- Menu -->
+    <menuitem id="foggy_mcp_menu_setup_wizard"
+              name="设置向导"
+              parent="foggy_mcp_menu_root"
+              action="foggy_setup_wizard_action"
+              sequence="1"/>
+
+</odoo>
