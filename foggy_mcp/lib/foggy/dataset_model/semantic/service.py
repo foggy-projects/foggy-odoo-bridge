@@ -373,7 +373,7 @@ class SemanticQueryService(SemanticServiceResolver):
                     if resolved["join_def"]:
                         ensure_join(resolved["join_def"])
                     if resolved["is_measure"]:
-                        builder.order_by(f"`{resolved['alias_label']}`", direction)
+                        builder.order_by(f"\"{resolved['alias_label']}\"", direction)
                     else:
                         builder.order_by(resolved["sql_expr"], direction)
                 else:
