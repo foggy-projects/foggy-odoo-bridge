@@ -208,6 +208,47 @@ ir.rule → 行级过滤（域解析 → DSL slice → 注入 payload.slice）
 > **解决方式**：更新 vendored 代码 + `embedded_backend.py` 通过 `LocalDatasetAccessor` 调用。
 > **状态**：✅ 已解决，内嵌模式正常工作。
 
+## 三引擎对比测试（2026-03-22）
+
+### 测试结果
+
+三引擎 **15/15 全部通过**。详见 `tests/results/comparison-report.md`。
+
+### 引擎启动方式
+
+| 引擎 | 启动方式 | 端口 |
+|------|---------|------|
+| 内嵌 Python | Odoo 插件内嵌，`engine_mode=embedded` | N/A（进程内） |
+| Java 网关 | `java -jar foggy-mcp-launcher-*.jar --spring.profiles.active=lite,odoo --server.port=7108` | 7108 |
+| Python 网关 | `python scripts/start_python_mcp.py --port 8066` | 8066 |
+
+### 关键经验
+
+1. **Java 网关 namespace**：Java 引擎使用 bundle 系统，Odoo 模型注册在 `odoo` namespace。请求时必须通过 **`X-NS: odoo` HTTP 请求头**传递 namespace，否则会报 `资源不存在（在默认命名空间中）`。Odoo 侧 `FoggyClient` 通过 `X-NS` header 发送，Python 网关**不需要 namespace**（模型直接注册到全局）。
+
+2. **Java 启动模块**：入口是 `foggy-mcp-launcher`（非 `foggy-dataset-mcp`），包含 Spring Boot main class `McpLauncherApplication`。构建命令：`mvn clean package -pl foggy-mcp-launcher -am -DskipTests`。
+
+3. **Java 数据源持久化**：Java 引擎的数据源配置通过 REST API `POST /api/v1/datasource` 设置后自动持久化到 `~/.foggy/datasources/*.json`，重启自动恢复。
+
+4. **Python TM/QM 加载**：
+   - FSScript `@service` 导入需要 mock（`@jdbcModelDictService` 等 Java SPI 服务在 Python 不可用）
+   - TM 文件中 `dataSourceName` 通过 `dicts.fsscript` 中的 `ODOO_DATA_SOURCE_NAME='odoo'` 常量定义
+   - QM 文件通过 `loadTableModel('OdooSaleOrderModel')` 引用 TM
+
+5. **Vendored 代码同步**：
+   ```bash
+   PY_SRC="../foggy-data-mcp-bridge-python/src/foggy"
+   VENDOR="foggy_mcp/lib/foggy"
+   rm -rf "$VENDOR" && mkdir -p "$VENDOR"
+   cp -r "$PY_SRC"/{__init__.py,core,dataset,dataset_model,mcp_spi,bean_copy} "$VENDOR/"
+   find "$VENDOR" -name "__pycache__" -exec rm -rf {} +
+   ```
+
+### 测试脚本
+
+- `tests/e2e/test_engine_comparison.py` — pytest 自动化对比测试（通过 Odoo MCP 端点）
+- `scripts/start_python_mcp.py` — Python 独立 MCP Server 启动器
+
 ## License
 
 Apache License 2.0
