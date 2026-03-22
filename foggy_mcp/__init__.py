@@ -62,6 +62,47 @@ def post_init_hook(env):
                 """, (key, default_value))
                 _logger.debug("Created config parameter: %s", key)
 
+        # ── Initialize closure tables and date dimension ──
+        _init_auxiliary_tables(cr)
+
         _logger.info("Foggy MCP Gateway: Post-init hook completed successfully")
     except Exception as e:
         _logger.warning("Foggy MCP Gateway: Post-init hook encountered an issue: %s", e)
+
+
+def _init_auxiliary_tables(cr):
+    """Create and populate closure tables + date dimension table.
+
+    Reads SQL files from setup/sql/ and executes them.
+    Safe to run multiple times (CREATE IF NOT EXISTS + ON CONFLICT DO NOTHING).
+    """
+    import os
+
+    sql_dir = os.path.join(os.path.dirname(__file__), 'setup', 'sql')
+
+    # 1. Closure tables — create tables + refresh functions
+    closure_sql = os.path.join(sql_dir, 'refresh_closure_tables.sql')
+    if os.path.exists(closure_sql):
+        try:
+            with open(closure_sql, 'r', encoding='utf-8') as f:
+                cr.execute(f.read())
+            cr.execute("SELECT refresh_all_closures()")
+            _logger.info("Closure tables initialized and refreshed")
+        except Exception as e:
+            _logger.warning("Failed to initialize closure tables: %s", e)
+    else:
+        _logger.warning("Closure SQL not found: %s", closure_sql)
+
+    # 2. Date dimension table — create table + populate 2020-2035
+    dim_date_sql = os.path.join(sql_dir, 'create_dim_date.sql')
+    if os.path.exists(dim_date_sql):
+        try:
+            with open(dim_date_sql, 'r', encoding='utf-8') as f:
+                cr.execute(f.read())
+            cr.execute("SELECT create_or_refresh_dim_date(2020, 2035)")
+            row_count = cr.fetchone()[0]
+            _logger.info("Date dimension table initialized: %d rows (2020-2035)", row_count)
+        except Exception as e:
+            _logger.warning("Failed to initialize date dimension: %s", e)
+    else:
+        _logger.warning("Date dimension SQL not found: %s", dim_date_sql)

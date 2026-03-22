@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <data noupdate="1">
+
+        <!-- ═══ Closure Tables Refresh ═══ -->
+        <!-- Refreshes all 4 closure tables daily at 03:00 AM -->
+        <!-- Tables: res_company_closure, hr_department_closure,
+             hr_employee_closure, res_partner_closure -->
+        <record id="foggy_cron_refresh_closures" model="ir.cron">
+            <field name="name">Foggy MCP: 刷新闭包表</field>
+            <field name="model_id" ref="base.model_ir_cron"/>
+            <field name="state">code</field>
+            <field name="code">
+env.cr.execute("SELECT EXISTS(SELECT 1 FROM pg_proc WHERE proname = 'refresh_all_closures')")
+if env.cr.fetchone()[0]:
+    env.cr.execute("SELECT refresh_all_closures()")
+    env.cr.connection.commit()
+            </field>
+            <field name="interval_number">1</field>
+            <field name="interval_type">days</field>
+            <field name="numbercall">-1</field>
+            <field name="active">True</field>
+            <field name="priority">100</field>
+        </record>
+
+        <!-- ═══ Date Dimension Table Refresh ═══ -->
+        <!-- Refreshes dim_date yearly (extends range if needed) -->
+        <record id="foggy_cron_refresh_dim_date" model="ir.cron">
+            <field name="name">Foggy MCP: 刷新日期维表</field>
+            <field name="model_id" ref="base.model_ir_cron"/>
+            <field name="state">code</field>
+            <field name="code">
+env.cr.execute("SELECT EXISTS(SELECT 1 FROM pg_proc WHERE proname = 'create_or_refresh_dim_date')")
+if env.cr.fetchone()[0]:
+    env.cr.execute("SELECT create_or_refresh_dim_date(2020, 2035)")
+    env.cr.connection.commit()
+            </field>
+            <field name="interval_number">1</field>
+            <field name="interval_type">months</field>
+            <field name="numbercall">-1</field>
+            <field name="active">True</field>
+            <field name="priority">110</field>
+        </record>
+
+    </data>
+</odoo>

@@ -655,8 +655,13 @@ class FoggySetupWizard(models.TransientModel):
                 count = self.env.cr.fetchone()[0]
                 counts.append(f"  {table}: {count} rows")
 
+            # Also initialize date dimension table
+            dim_date_status = self._init_dim_date()
+
             self.write({
-                'closure_status': "✅ 闭包表初始化完成！\n\n" + '\n'.join(counts)
+                'closure_status': "✅ 闭包表初始化完成！\n\n"
+                                  + '\n'.join(counts)
+                                  + '\n\n' + dim_date_status
             })
         except Exception as e:
             # Log the error for debugging, but show user-friendly message
@@ -668,6 +673,25 @@ class FoggySetupWizard(models.TransientModel):
             })
 
         return self._reopen()
+
+    def _init_dim_date(self):
+        """Initialize date dimension table. Returns status string."""
+        sql_path = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)),
+            'setup', 'sql', 'create_dim_date.sql',
+        )
+        try:
+            if not os.path.exists(sql_path):
+                return "⚠️ 日期维表 SQL 未找到（可选）"
+
+            with open(sql_path, 'r', encoding='utf-8') as f:
+                self.env.cr.execute(f.read())
+            self.env.cr.execute("SELECT create_or_refresh_dim_date(2020, 2035)")
+            row_count = self.env.cr.fetchone()[0]
+            return f"✅ 日期维表初始化完成：dim_date {row_count} rows (2020-2035)"
+        except Exception as e:
+            _logger.warning("Date dimension initialization failed: %s", e)
+            return f"⚠️ 日期维表初始化失败：{e}（可选，不影响核心功能）"
 
     def action_skip_closure(self):
         """Skip closure table initialization."""

@@ -57,6 +57,7 @@ Data Privacy Notice:
         'views/foggy_api_key_views.xml',
         'views/foggy_chat_views.xml',
         'data/foggy_data.xml',
+        'data/foggy_cron.xml',
     ],
     'assets': {
         'web.assets_backend': [
