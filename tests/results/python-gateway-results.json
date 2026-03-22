@@ -1,0 +1,315 @@
+{
+  "engine_mode": "python-gateway",
+  "server_url": "http://localhost:8066",
+  "database": "odoo_demo",
+  "timestamp": "2026-03-22T17:07:41",
+  "scenarios": [
+    {
+      "id": "T01",
+      "name": "partner: name+email+city",
+      "model": "OdooResPartnerQueryModel",
+      "success": true,
+      "row_count": 5,
+      "duration_ms": 95.73,
+      "error": "",
+      "sql": "SELECT t.name AS \"Name\", t.email AS \"Email\", t.city AS \"City\"\nFROM res_partner AS t\nLIMIT 5",
+      "sample_data": [
+        {
+          "Name": "Public user",
+          "Email": null,
+          "City": null
+        },
+        {
+          "Name": "My Company (San Francisco)",
+          "Email": "info@yourcompany.com",
+          "City": "San Francisco"
+        },
+        {
+          "Name": "Portal User Template",
+          "Email": null,
+          "City": null
+        }
+      ]
+    },
+    {
+      "id": "T02",
+      "name": "company: name",
+      "model": "OdooResCompanyQueryModel",
+      "success": true,
+      "row_count": 2,
+      "duration_ms": 48.94,
+      "error": "",
+      "sql": "SELECT t.name AS \"Company Name\"\nFROM res_company AS t\nLIMIT 5",
+      "sample_data": [
+        {
+          "Company Name": "My Company (Chicago)"
+        },
+        {
+          "Company Name": "My Company (San Francisco)"
+        }
+      ]
+    },
+    {
+      "id": "T03",
+      "name": "employee: name",
+      "model": "OdooHrEmployeeQueryModel",
+      "success": true,
+      "row_count": 5,
+      "duration_ms": 29.73,
+      "error": "",
+      "sql": "SELECT t.name AS \"Employee Name\"\nFROM hr_employee AS t\nLIMIT 5",
+      "sample_data": [
+        {
+          "Employee Name": "Mitchell Admin"
+        },
+        {
+          "Employee Name": "Anita Oliver"
+        },
+        {
+          "Employee Name": "Jeffrey Kelly"
+        }
+      ]
+    },
+    {
+      "id": "T04",
+      "name": "crm lead: name",
+      "model": "OdooCrmLeadQueryModel",
+      "success": true,
+      "row_count": 5,
+      "duration_ms": 43.64,
+      "error": "",
+      "sql": "SELECT t.name AS \"Lead Name\"\nFROM crm_lead AS t\nLIMIT 5",
+      "sample_data": [
+        {
+          "Lead Name": "Club Office Furnitures"
+        },
+        {
+          "Lead Name": "Design Software"
+        },
+        {
+          "Lead Name": "Quotation for 50 Chairs"
+        }
+      ]
+    },
+    {
+      "id": "T05",
+      "name": "sale order: name+amountTotal",
+      "model": "OdooSaleOrderQueryModel",
+      "success": true,
+      "row_count": 5,
+      "duration_ms": 48.82,
+      "error": "",
+      "sql": "SELECT t.name AS \"Order Reference\", SUM(t.amount_total) AS \"Total\"\nFROM sale_order AS t\nGROUP BY t.name\nLIMIT 5",
+      "sample_data": [
+        {
+          "Order Reference": "S00009",
+          "Total": 752.11
+        },
+        {
+          "Order Reference": "S00008",
+          "Total": 531.3
+        },
+        {
+          "Order Reference": "S00020",
+          "Total": 3389.63
+        }
+      ]
+    },
+    {
+      "id": "T06",
+      "name": "purchase order: name",
+      "model": "OdooPurchaseOrderQueryModel",
+      "success": true,
+      "row_count": 5,
+      "duration_ms": 44.08,
+      "error": "",
+      "sql": "SELECT t.name AS \"Order Reference\"\nFROM purchase_order AS t\nLIMIT 5",
+      "sample_data": [
+        {
+          "Order Reference": "P00004"
+        },
+        {
+          "Order Reference": "P00001"
+        },
+        {
+          "Order Reference": "P00003"
+        }
+      ]
+    },
+    {
+      "id": "T07",
+      "name": "account move: name",
+      "model": "OdooAccountMoveQueryModel",
+      "success": true,
+      "row_count": 5,
+      "duration_ms": 47.01,
+      "error": "",
+      "sql": "SELECT t.name AS \"Number\"\nFROM account_move AS t\nLIMIT 5",
+      "sample_data": [
+        {
+          "Number": "BNK1/2026/00001"
+        },
+        {
+          "Number": "BNK1/2026/00003"
+        },
+        {
+          "Number": "BNK1/2026/00002"
+        }
+      ]
+    },
+    {
+      "id": "T08",
+      "name": "stock picking: name",
+      "model": "OdooStockPickingQueryModel",
+      "success": true,
+      "row_count": 5,
+      "duration_ms": 44.49,
+      "error": "",
+      "sql": "SELECT t.name AS \"Reference\"\nFROM stock_picking AS t\nLIMIT 5",
+      "sample_data": [
+        {
+          "Reference": "WH/OUT/00001"
+        },
+        {
+          "Reference": "WH/IN/00002"
+        },
+        {
+          "Reference": "WH/IN/00003"
+        }
+      ]
+    },
+    {
+      "id": "T10",
+      "name": "agg: companyCount",
+      "model": "OdooResCompanyQueryModel",
+      "success": true,
+      "row_count": 1,
+      "duration_ms": 45.77,
+      "error": "",
+      "sql": "SELECT COUNT(DISTINCT t.id) AS \"Company Count\"\nFROM res_company AS t\nLIMIT 10000",
+      "sample_data": [
+        {
+          "Company Count": 2
+        }
+      ]
+    },
+    {
+      "id": "T11",
+      "name": "agg: employeeCount",
+      "model": "OdooHrEmployeeQueryModel",
+      "success": true,
+      "row_count": 1,
+      "duration_ms": 46.77,
+      "error": "",
+      "sql": "SELECT COUNT(DISTINCT t.id) AS \"Employee Count\"\nFROM hr_employee AS t\nLIMIT 10000",
+      "sample_data": [
+        {
+          "Employee Count": 20
+        }
+      ]
+    },
+    {
+      "id": "T15",
+      "name": "join: dept + employeeCount",
+      "model": "OdooHrEmployeeQueryModel",
+      "success": true,
+      "row_count": 7,
+      "duration_ms": 31.61,
+      "error": "",
+      "sql": "SELECT hd.complete_name AS \"Department\", COUNT(DISTINCT t.id) AS \"Employee Count\"\nFROM hr_employee AS t\nLEFT JOIN hr_department AS hd ON t.department_id = hd.id\nGROUP BY hd.complete_name\nLIMIT 10000",
+      "sample_data": [
+        {
+          "Department": "Management",
+          "Employee Count": 2
+        },
+        {
+          "Department": "Management / Administration",
+          "Employee Count": 1
+        },
+        {
+          "Department": "Management / Professional Services",
+          "Employee Count": 5
+        }
+      ]
+    },
+    {
+      "id": "T16",
+      "name": "join: partner by country",
+      "model": "OdooResPartnerQueryModel",
+      "success": true,
+      "row_count": 2,
+      "duration_ms": 45.76,
+      "error": "",
+      "sql": "SELECT rc.id AS \"Country\", COUNT(DISTINCT t.id) AS \"Partner Count\"\nFROM res_partner AS t\nLEFT JOIN res_country AS rc ON t.country_id = rc.id\nGROUP BY rc.id\nLIMIT 10000",
+      "sample_data": [
+        {
+          "Country": 233,
+          "Partner Count": 38
+        },
+        {
+          "Country": null,
+          "Partner Count": 23
+        }
+      ]
+    },
+    {
+      "id": "T22",
+      "name": "self-ref: company+parent",
+      "model": "OdooResCompanyQueryModel",
+      "success": true,
+      "row_count": 2,
+      "duration_ms": 43.56,
+      "error": "",
+      "sql": "SELECT t.name AS \"Company Name\", rc.name AS \"Parent Company\"\nFROM res_company AS t\nLEFT JOIN res_company AS rc ON t.parent_id = rc.id\nLIMIT 5",
+      "sample_data": [
+        {
+          "Company Name": "My Company (Chicago)",
+          "Parent Company": null
+        },
+        {
+          "Company Name": "My Company (San Francisco)",
+          "Parent Company": null
+        }
+      ]
+    },
+    {
+      "id": "T31",
+      "name": "sort: crm expectedRevenue DESC",
+      "model": "OdooCrmLeadQueryModel",
+      "success": true,
+      "row_count": 5,
+      "duration_ms": 30.21,
+      "error": "",
+      "sql": "SELECT t.name AS \"Lead Name\", SUM(t.expected_revenue) AS \"Expected Revenue\"\nFROM crm_lead AS t\nGROUP BY t.name\nORDER BY \"Expected Revenue\" DESC\nLIMIT 5",
+      "sample_data": [
+        {
+          "Lead Name": "Pricing for 25 desks",
+          "Expected Revenue": null
+        },
+        {
+          "Lead Name": "Acadia College Furnitures",
+          "Expected Revenue": null
+        },
+        {
+          "Lead Name": "Design Software",
+          "Expected Revenue": null
+        }
+      ]
+    },
+    {
+      "id": "T42",
+      "name": "agg: employeeCount total",
+      "model": "OdooHrEmployeeQueryModel",
+      "success": true,
+      "row_count": 1,
+      "duration_ms": 27.82,
+      "error": "",
+      "sql": "SELECT COUNT(DISTINCT t.id) AS \"Employee Count\"\nFROM hr_employee AS t\nLIMIT 10000",
+      "sample_data": [
+        {
+          "Employee Count": 20
+        }
+      ]
+    }
+  ]
+}

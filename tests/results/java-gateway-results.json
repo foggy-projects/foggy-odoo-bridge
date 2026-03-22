@@ -1,0 +1,315 @@
+{
+  "engine_mode": "java-gateway",
+  "server_url": "http://localhost:7108",
+  "database": "odoo_demo",
+  "timestamp": "2026-03-22T18:28:46",
+  "scenarios": [
+    {
+      "id": "T01",
+      "name": "partner: name+email+city",
+      "model": "OdooResPartnerQueryModel",
+      "success": true,
+      "row_count": 61,
+      "duration_ms": 14.28,
+      "error": "",
+      "sample_data": [
+        {
+          "name": "Jeff Lawson",
+          "email": "jeff.lawson52@example.com",
+          "city": "Chicago"
+        },
+        {
+          "name": "My Company (Chicago)",
+          "email": "chicago@yourcompany.com",
+          "city": "Chicago"
+        },
+        {
+          "name": "Beth Evans",
+          "email": "beth.evans77@example.com",
+          "city": null
+        }
+      ]
+    },
+    {
+      "id": "T02",
+      "name": "company: name",
+      "model": "OdooResCompanyQueryModel",
+      "success": true,
+      "row_count": 2,
+      "duration_ms": 35.66,
+      "error": "",
+      "sample_data": [
+        {
+          "name": "My Company (Chicago)"
+        },
+        {
+          "name": "My Company (San Francisco)"
+        }
+      ]
+    },
+    {
+      "id": "T03",
+      "name": "employee: name",
+      "model": "OdooHrEmployeeQueryModel",
+      "success": true,
+      "row_count": 20,
+      "duration_ms": 487.05,
+      "error": "",
+      "sample_data": [
+        {
+          "name": "Beth Evans"
+        },
+        {
+          "name": "Walter Horton"
+        },
+        {
+          "name": "Paul Williams"
+        }
+      ]
+    },
+    {
+      "id": "T04",
+      "name": "crm lead: name",
+      "model": "OdooCrmLeadQueryModel",
+      "success": true,
+      "row_count": 44,
+      "duration_ms": 392.36,
+      "error": "",
+      "sample_data": [
+        {
+          "name": "Quote for 35 windows"
+        },
+        {
+          "name": "Modernize old offices"
+        },
+        {
+          "name": "Furnitures for new location"
+        }
+      ]
+    },
+    {
+      "id": "T05",
+      "name": "sale order: name+amountTotal",
+      "model": "OdooSaleOrderQueryModel",
+      "success": true,
+      "row_count": 24,
+      "duration_ms": 397.84,
+      "error": "",
+      "sample_data": [
+        {
+          "name": "S00024",
+          "amountTotal": 2288.5
+        },
+        {
+          "name": "S00023",
+          "amountTotal": 5002.5
+        },
+        {
+          "name": "S00022",
+          "amountTotal": 1696.25
+        }
+      ]
+    },
+    {
+      "id": "T06",
+      "name": "purchase order: name",
+      "model": "OdooPurchaseOrderQueryModel",
+      "success": true,
+      "row_count": 11,
+      "duration_ms": 368.1,
+      "error": "",
+      "sample_data": [
+        {
+          "name": "P00011"
+        },
+        {
+          "name": "P00010"
+        },
+        {
+          "name": "P00009"
+        }
+      ]
+    },
+    {
+      "id": "T07",
+      "name": "account move: name",
+      "model": "OdooAccountMoveQueryModel",
+      "success": true,
+      "row_count": 24,
+      "duration_ms": 456.69,
+      "error": "",
+      "sample_data": [
+        {
+          "name": "BNK1/2026/00008"
+        },
+        {
+          "name": "BNK1/2026/00007"
+        },
+        {
+          "name": "BNK1/2026/00006"
+        }
+      ]
+    },
+    {
+      "id": "T08",
+      "name": "stock picking: name",
+      "model": "OdooStockPickingQueryModel",
+      "success": true,
+      "row_count": 25,
+      "duration_ms": 374.27,
+      "error": "",
+      "sample_data": [
+        {
+          "name": "WH/OUT/00011"
+        },
+        {
+          "name": "WH/OUT/00010"
+        },
+        {
+          "name": "WH/OUT/00009"
+        }
+      ]
+    },
+    {
+      "id": "T10",
+      "name": "agg: companyCount",
+      "model": "OdooResCompanyQueryModel",
+      "success": true,
+      "row_count": 2,
+      "duration_ms": 46.3,
+      "error": "",
+      "sample_data": [
+        {
+          "companyCount": 2
+        },
+        {
+          "companyCount": 1
+        }
+      ]
+    },
+    {
+      "id": "T11",
+      "name": "agg: employeeCount",
+      "model": "OdooHrEmployeeQueryModel",
+      "success": true,
+      "row_count": 20,
+      "duration_ms": 45.03,
+      "error": "",
+      "sample_data": [
+        {
+          "employeeCount": 20
+        },
+        {
+          "employeeCount": 19
+        },
+        {
+          "employeeCount": 18
+        }
+      ]
+    },
+    {
+      "id": "T15",
+      "name": "join: dept + employeeCount",
+      "model": "OdooHrEmployeeQueryModel",
+      "success": true,
+      "row_count": 7,
+      "duration_ms": 48.9,
+      "error": "",
+      "sample_data": [
+        {
+          "department$caption": "Management",
+          "employeeCount": 2
+        },
+        {
+          "department$caption": "Management / Administration",
+          "employeeCount": 1
+        },
+        {
+          "department$caption": "Management / Professional Services",
+          "employeeCount": 5
+        }
+      ]
+    },
+    {
+      "id": "T16",
+      "name": "join: partner by country",
+      "model": "OdooResPartnerQueryModel",
+      "success": true,
+      "row_count": 2,
+      "duration_ms": 32.41,
+      "error": "",
+      "sample_data": [
+        {
+          "country$caption": "United States",
+          "partnerCount": 38
+        },
+        {
+          "country$caption": null,
+          "partnerCount": 23
+        }
+      ]
+    },
+    {
+      "id": "T22",
+      "name": "self-ref: company+parent",
+      "model": "OdooResCompanyQueryModel",
+      "success": true,
+      "row_count": 2,
+      "duration_ms": 27.12,
+      "error": "",
+      "sample_data": [
+        {
+          "name": "My Company (Chicago)",
+          "parent$caption": null
+        },
+        {
+          "name": "My Company (San Francisco)",
+          "parent$caption": null
+        }
+      ]
+    },
+    {
+      "id": "T31",
+      "name": "sort: crm expectedRevenue DESC",
+      "model": "OdooCrmLeadQueryModel",
+      "success": true,
+      "row_count": 44,
+      "duration_ms": 33.05,
+      "error": "",
+      "sample_data": [
+        {
+          "name": "Acadia College Furnitures",
+          "expectedRevenue": null
+        },
+        {
+          "name": "Club Office More Desks",
+          "expectedRevenue": null
+        },
+        {
+          "name": "Quotation for 100 Desks",
+          "expectedRevenue": null
+        }
+      ]
+    },
+    {
+      "id": "T42",
+      "name": "agg: employeeCount total",
+      "model": "OdooHrEmployeeQueryModel",
+      "success": true,
+      "row_count": 20,
+      "duration_ms": 28.76,
+      "error": "",
+      "sample_data": [
+        {
+          "employeeCount": 20
+        },
+        {
+          "employeeCount": 19
+        },
+        {
+          "employeeCount": 18
+        }
+      ]
+    }
+  ]
+}

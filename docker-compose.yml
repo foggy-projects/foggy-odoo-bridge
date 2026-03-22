@@ -41,7 +41,7 @@ services:
       - odoo-data:/var/lib/odoo
     command:
       - odoo
-      - --database=odoo
+      - --database=odoo_demo
       - --addons-path=/mnt/extra-addons
       - --db_host=postgres
       - --db_port=5432
