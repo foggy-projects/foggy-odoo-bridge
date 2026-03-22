@@ -175,7 +175,7 @@ class FoggySetupWizard(models.TransientModel):
     def _compute_embedded_available(self):
         for rec in self:
             try:
-                import foggy.mcp.spi  # noqa: F401
+                import foggy.mcp_spi  # noqa: F401
                 rec.embedded_available = True
             except ImportError:
                 rec.embedded_available = False
