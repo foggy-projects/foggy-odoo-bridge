@@ -8,7 +8,7 @@ from ._helpers import (
 
 def create_purchase_order_model():
     return odoo_model(
-        name='OdooPurchaseOrderModel',
+        name='OdooPurchaseOrderQueryModel',
         table='purchase_order',
         alias='采购订单',
         dimensions={

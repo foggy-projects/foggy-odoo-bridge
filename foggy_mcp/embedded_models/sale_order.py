@@ -8,7 +8,7 @@ from ._helpers import (
 
 def create_sale_order_model():
     return odoo_model(
-        name='OdooSaleOrderModel',
+        name='OdooSaleOrderQueryModel',
         table='sale_order',
         alias='销售订单',
         dimensions={
@@ -43,7 +43,7 @@ def create_sale_order_model():
 
 def create_sale_order_line_model():
     return odoo_model(
-        name='OdooSaleOrderLineModel',
+        name='OdooSaleOrderLineQueryModel',
         table='sale_order_line',
         alias='销售订单行',
         dimensions={

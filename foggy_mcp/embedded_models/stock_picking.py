@@ -8,7 +8,7 @@ from ._helpers import (
 
 def create_stock_picking_model():
     return odoo_model(
-        name='OdooStockPickingModel',
+        name='OdooStockPickingQueryModel',
         table='stock_picking',
         alias='库存调拨',
         dimensions={

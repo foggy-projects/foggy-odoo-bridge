@@ -109,7 +109,7 @@
     <!-- "我的 API 密钥" 菜单 — 位于设置 → Foggy MCP 下 -->
     <menuitem id="foggy_mcp_user_menu_my_key"
               name="MCP API 密钥"
-              parent="foggy_mcp_config_menu_root"
+              parent="foggy_mcp_menu_root"
               action="foggy_my_api_key_action"
               sequence="20"
               groups="base.group_user"/>

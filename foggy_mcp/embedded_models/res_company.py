@@ -5,7 +5,7 @@ from ._helpers import odoo_model, dim, dim_time, measure_count, fk_join
 
 def create_res_company_model():
     return odoo_model(
-        name='OdooResCompanyModel',
+        name='OdooResCompanyQueryModel',
         table='res_company',
         alias='公司',
         dimensions={

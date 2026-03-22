@@ -8,7 +8,7 @@ from ._helpers import (
 
 def create_hr_employee_model():
     return odoo_model(
-        name='OdooHrEmployeeModel',
+        name='OdooHrEmployeeQueryModel',
         table='hr_employee',
         alias='员工',
         dimensions={

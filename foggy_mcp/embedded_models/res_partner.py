@@ -8,7 +8,7 @@ from ._helpers import (
 
 def create_res_partner_model():
     return odoo_model(
-        name='OdooResPartnerModel',
+        name='OdooResPartnerQueryModel',
         table='res_partner',
         alias='合作伙伴',
         dimensions={

@@ -9,7 +9,7 @@
     <!-- 菜单：AI 对话 — 位于设置 → Foggy MCP 下 -->
     <menuitem id="foggy_mcp_user_menu_chat"
               name="Foggy AI 对话"
-              parent="foggy_mcp_config_menu_root"
+              parent="foggy_mcp_menu_root"
               action="foggy_chat_action"
               sequence="10"
               groups="base.group_user"/>

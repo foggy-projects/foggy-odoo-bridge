@@ -8,7 +8,7 @@ from ._helpers import (
 
 def create_account_move_model():
     return odoo_model(
-        name='OdooAccountMoveModel',
+        name='OdooAccountMoveQueryModel',
         table='account_move',
         alias='会计分录/发票',
         dimensions={

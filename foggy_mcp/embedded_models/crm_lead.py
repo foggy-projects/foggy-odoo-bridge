@@ -9,7 +9,7 @@ from ._helpers import (
 
 def create_crm_lead_model():
     return odoo_model(
-        name='OdooCrmLeadModel',
+        name='OdooCrmLeadQueryModel',
         table='crm_lead',
         alias='CRM 线索/商机',
         dimensions={
