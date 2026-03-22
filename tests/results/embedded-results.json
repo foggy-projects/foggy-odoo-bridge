@@ -1,300 +1,302 @@
 {
   "engine_mode": "embedded",
-  "odoo_url": "http://localhost:8069",
-  "database": "odoo_demo",
-  "timestamp": "2026-03-22T12:44:16",
+  "via": "odoo-mcp",
+  "timestamp": "2026-03-22T19:34:28",
   "scenarios": [
     {
       "id": "T01",
-      "name": "基础查询：合作伙伴",
-      "category": "基础查询",
+      "name": "res_partner: name+email+city",
       "model": "OdooResPartnerQueryModel",
       "success": true,
-      "row_count": 5,
-      "total": 5,
-      "duration_ms": 3.53,
-      "sql": "SELECT t.name AS \"名称\", t.email AS \"邮箱\", t.city AS \"城市\"\nFROM res_partner AS t\nLIMIT 5",
+      "row_count": 0,
+      "duration_ms": 3228.92,
       "error": "",
-      "sample_data": [
-        {
-          "名称": "Public user",
-          "邮箱": null,
-          "城市": null
-        },
-        {
-          "名称": "My Company (San Francisco)",
-          "邮箱": "info@yourcompany.com",
-          "城市": "San Francisco"
-        },
-        {
-          "名称": "Portal User Template",
-          "邮箱": null,
-          "城市": null
-        }
-      ]
+      "sql": "",
+      "sample_data": []
     },
     {
       "id": "T02",
-      "name": "基础查询：公司",
-      "category": "基础查询",
+      "name": "res_company: name",
       "model": "OdooResCompanyQueryModel",
       "success": true,
       "row_count": 2,
-      "total": 2,
-      "duration_ms": 0.99,
-      "sql": "SELECT t.name AS \"公司名称\"\nFROM res_company AS t\nLIMIT 5",
+      "duration_ms": 47.23,
       "error": "",
+      "sql": "",
       "sample_data": [
         {
-          "公司名称": "My Company (Chicago)"
+          "name": "My Company (Chicago)"
         },
         {
-          "公司名称": "My Company (San Francisco)"
+          "name": "My Company (San Francisco)"
         }
       ]
     },
     {
       "id": "T03",
-      "name": "基础查询：员工",
-      "category": "基础查询",
+      "name": "hr_employee: name",
       "model": "OdooHrEmployeeQueryModel",
       "success": true,
-      "row_count": 5,
-      "total": 5,
-      "duration_ms": 0.95,
-      "sql": "SELECT t.name AS \"姓名\"\nFROM hr_employee AS t\nLIMIT 5",
+      "row_count": 20,
+      "duration_ms": 48.63,
       "error": "",
+      "sql": "",
       "sample_data": [
         {
-          "姓名": "Mitchell Admin"
+          "name": "Beth Evans"
         },
         {
-          "姓名": "Anita Oliver"
+          "name": "Walter Horton"
         },
         {
-          "姓名": "Jeffrey Kelly"
+          "name": "Paul Williams"
         }
       ]
     },
     {
       "id": "T04",
-      "name": "基础查询：CRM 线索",
-      "category": "基础查询",
+      "name": "crm_lead: name",
       "model": "OdooCrmLeadQueryModel",
       "success": true,
-      "row_count": 5,
-      "total": 5,
-      "duration_ms": 1.5,
-      "sql": "SELECT t.name AS \"线索名称\"\nFROM crm_lead AS t\nLIMIT 5",
+      "row_count": 44,
+      "duration_ms": 60.61,
       "error": "",
+      "sql": "",
       "sample_data": [
         {
-          "线索名称": "Club Office Furnitures"
+          "name": "Quote for 35 windows"
         },
         {
-          "线索名称": "Design Software"
+          "name": "Modernize old offices"
         },
         {
-          "线索名称": "Quotation for 50 Chairs"
+          "name": "Furnitures for new location"
         }
       ]
     },
     {
       "id": "T05",
-      "name": "基础查询：销售订单",
-      "category": "基础查询",
+      "name": "sale_order: name+amountTotal",
       "model": "OdooSaleOrderQueryModel",
       "success": true,
-      "row_count": 0,
-      "total": 0,
-      "duration_ms": 1.33,
-      "sql": "SELECT t.name AS \"订单编号\", SUM(t.amount_total) AS \"总金额\"\nFROM sale_order AS t\nLEFT JOIN res_company AS rc ON t.company_id = rc.id\nWHERE rc.id IN (?)\nGROUP BY t.name\nLIMIT 5",
+      "row_count": 24,
+      "duration_ms": 66.93,
       "error": "",
-      "sample_data": []
+      "sql": "",
+      "sample_data": [
+        {
+          "name": "S00024",
+          "amountTotal": 2288.5
+        },
+        {
+          "name": "S00023",
+          "amountTotal": 5002.5
+        },
+        {
+          "name": "S00022",
+          "amountTotal": 1696.25
+        }
+      ]
     },
     {
       "id": "T06",
-      "name": "基础查询：采购订单",
-      "category": "基础查询",
+      "name": "purchase_order: name",
       "model": "OdooPurchaseOrderQueryModel",
       "success": true,
-      "row_count": 0,
-      "total": 0,
-      "duration_ms": 1.07,
-      "sql": "SELECT t.name AS \"订单编号\"\nFROM purchase_order AS t\nLEFT JOIN res_company AS rc ON t.company_id = rc.id\nWHERE rc.id IN (?)\nLIMIT 5",
+      "row_count": 11,
+      "duration_ms": 54.75,
       "error": "",
-      "sample_data": []
+      "sql": "",
+      "sample_data": [
+        {
+          "name": "P00011"
+        },
+        {
+          "name": "P00010"
+        },
+        {
+          "name": "P00009"
+        }
+      ]
     },
     {
       "id": "T07",
-      "name": "基础查询：会计分录",
-      "category": "基础查询",
+      "name": "account_move: name",
       "model": "OdooAccountMoveQueryModel",
       "success": true,
-      "row_count": 0,
-      "total": 0,
-      "duration_ms": 1.01,
-      "sql": "SELECT t.name AS \"编号\"\nFROM account_move AS t\nLEFT JOIN res_company AS rc ON t.company_id = rc.id\nWHERE rc.id IN (?)\nLIMIT 5",
+      "row_count": 24,
+      "duration_ms": 49.54,
       "error": "",
-      "sample_data": []
+      "sql": "",
+      "sample_data": [
+        {
+          "name": "BNK1/2026/00008"
+        },
+        {
+          "name": "BNK1/2026/00007"
+        },
+        {
+          "name": "BNK1/2026/00006"
+        }
+      ]
     },
     {
       "id": "T08",
-      "name": "基础查询：库存调拨",
-      "category": "基础查询",
+      "name": "stock_picking: name",
       "model": "OdooStockPickingQueryModel",
       "success": true,
-      "row_count": 0,
-      "total": 0,
-      "duration_ms": 1.14,
-      "sql": "SELECT t.name AS \"参考号\"\nFROM stock_picking AS t\nLEFT JOIN res_company AS rc ON t.company_id = rc.id\nWHERE rc.id IN (?)\nLIMIT 5",
+      "row_count": 25,
+      "duration_ms": 44.66,
       "error": "",
-      "sample_data": []
+      "sql": "",
+      "sample_data": [
+        {
+          "name": "WH/OUT/00011"
+        },
+        {
+          "name": "WH/OUT/00010"
+        },
+        {
+          "name": "WH/OUT/00009"
+        }
+      ]
     },
     {
       "id": "T10",
-      "name": "聚合：公司数",
-      "category": "聚合分析",
+      "name": "agg: companyCount",
       "model": "OdooResCompanyQueryModel",
       "success": true,
-      "row_count": 1,
-      "total": 1,
-      "duration_ms": 1.05,
-      "sql": "SELECT COUNT(DISTINCT t.id) AS \"公司数\"\nFROM res_company AS t\nLIMIT 1000",
+      "row_count": 2,
+      "duration_ms": 60.49,
       "error": "",
+      "sql": "",
       "sample_data": [
         {
-          "公司数": 2
+          "companyCount": 2
+        },
+        {
+          "companyCount": 1
         }
       ]
     },
     {
       "id": "T11",
-      "name": "聚合：员工数",
-      "category": "聚合分析",
+      "name": "agg: employeeCount",
       "model": "OdooHrEmployeeQueryModel",
       "success": true,
-      "row_count": 1,
-      "total": 1,
-      "duration_ms": 0.98,
-      "sql": "SELECT COUNT(DISTINCT t.id) AS \"员工数\"\nFROM hr_employee AS t\nLIMIT 1000",
+      "row_count": 20,
+      "duration_ms": 58.78,
       "error": "",
+      "sql": "",
       "sample_data": [
         {
-          "员工数": 20
+          "employeeCount": 20
+        },
+        {
+          "employeeCount": 19
+        },
+        {
+          "employeeCount": 18
         }
       ]
     },
     {
       "id": "T15",
-      "name": "JOIN+分组：各部门员工数",
-      "category": "维度JOIN",
+      "name": "join: dept+employeeCount",
       "model": "OdooHrEmployeeQueryModel",
       "success": true,
       "row_count": 7,
-      "total": 7,
-      "duration_ms": 1.67,
-      "sql": "SELECT hd.complete_name AS \"部门\", COUNT(DISTINCT t.id) AS \"员工数\"\nFROM hr_employee AS t\nLEFT JOIN hr_department AS hd ON t.department_id = hd.id\nGROUP BY hd.complete_name\nLIMIT 1000",
+      "duration_ms": 63.86,
       "error": "",
+      "sql": "",
       "sample_data": [
         {
-          "部门": "Management",
-          "员工数": 2
+          "department$caption": "Management",
+          "employeeCount": 2
         },
         {
-          "部门": "Management / Administration",
-          "员工数": 1
+          "department$caption": "Management / Administration",
+          "employeeCount": 1
         },
         {
-          "部门": "Management / Professional Services",
-          "员工数": 5
+          "department$caption": "Management / Professional Services",
+          "employeeCount": 5
         }
       ]
     },
     {
       "id": "T16",
-      "name": "JOIN+分组：合作伙伴按国家分布",
-      "category": "维度JOIN",
+      "name": "join: partner by country",
       "model": "OdooResPartnerQueryModel",
       "success": true,
-      "row_count": 2,
-      "total": 2,
-      "duration_ms": 1.92,
-      "sql": "SELECT rc.name AS \"国家\", COUNT(DISTINCT t.id) AS \"伙伴数\"\nFROM res_partner AS t\nLEFT JOIN res_country AS rc ON t.country_id = rc.id\nGROUP BY rc.name\nLIMIT 1000",
+      "row_count": 0,
+      "duration_ms": 55.15,
       "error": "",
-      "sample_data": [
-        {
-          "国家": "{\"en_US\": \"United States\"}",
-          "伙伴数": 38
-        },
-        {
-          "国家": null,
-          "伙伴数": 23
-        }
-      ]
+      "sql": "",
+      "sample_data": []
     },
     {
       "id": "T22",
-      "name": "自引用维度：公司及母公司",
-      "category": "维度JOIN",
+      "name": "self-ref: company+parent",
       "model": "OdooResCompanyQueryModel",
       "success": true,
       "row_count": 2,
-      "total": 2,
-      "duration_ms": 1.24,
-      "sql": "SELECT t.name AS \"公司名称\", rc.name AS \"上级公司\"\nFROM res_company AS t\nLEFT JOIN res_company AS rc ON t.parent_id = rc.id\nLIMIT 5",
+      "duration_ms": 45.11,
       "error": "",
+      "sql": "",
       "sample_data": [
         {
-          "公司名称": "My Company (Chicago)",
-          "上级公司": null
+          "name": "My Company (Chicago)",
+          "parent$caption": null
         },
         {
-          "公司名称": "My Company (San Francisco)",
-          "上级公司": null
+          "name": "My Company (San Francisco)",
+          "parent$caption": null
         }
       ]
     },
     {
       "id": "T31",
-      "name": "排序：CRM 线索按预期收入 DESC",
-      "category": "排序",
+      "name": "sort: crm expectedRevenue DESC",
       "model": "OdooCrmLeadQueryModel",
       "success": true,
-      "row_count": 5,
-      "total": 5,
-      "duration_ms": 1.61,
-      "sql": "SELECT t.name AS \"线索名称\", SUM(t.expected_revenue) AS \"预期收入\"\nFROM crm_lead AS t\nGROUP BY t.name\nORDER BY \"预期收入\" DESC\nLIMIT 5",
+      "row_count": 44,
+      "duration_ms": 49.21,
       "error": "",
+      "sql": "",
       "sample_data": [
         {
-          "线索名称": "Pricing for 25 desks",
-          "预期收入": null
+          "name": "Acadia College Furnitures",
+          "expectedRevenue": null
         },
         {
-          "线索名称": "Acadia College Furnitures",
-          "预期收入": null
+          "name": "Club Office More Desks",
+          "expectedRevenue": null
         },
         {
-          "线索名称": "Design Software",
-          "预期收入": null
+          "name": "Quotation for 100 Desks",
+          "expectedRevenue": null
         }
       ]
     },
     {
       "id": "T42",
-      "name": "聚合：平均（员工总数）",
-      "category": "统计",
+      "name": "agg: employeeCount total",
       "model": "OdooHrEmployeeQueryModel",
       "success": true,
-      "row_count": 1,
-      "total": 1,
-      "duration_ms": 0.98,
-      "sql": "SELECT COUNT(DISTINCT t.id) AS \"员工数\"\nFROM hr_employee AS t\nLIMIT 1000",
+      "row_count": 20,
+      "duration_ms": 44.01,
       "error": "",
+      "sql": "",
       "sample_data": [
         {
-          "员工数": 20
+          "employeeCount": 20
+        },
+        {
+          "employeeCount": 19
+        },
+        {
+          "employeeCount": 18
         }
       ]
     }

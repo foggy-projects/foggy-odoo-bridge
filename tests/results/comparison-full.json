@@ -1,0 +1,708 @@
+{
+  "timestamp": "2026-03-22T19:34:32",
+  "via": "odoo-mcp (unified entry point)",
+  "summary": {
+    "embedded": "15/15",
+    "java": "15/15",
+    "python": "15/15"
+  },
+  "all_rows_match": true,
+  "scenarios": [
+    {
+      "id": "T01",
+      "name": "res_partner: name+email+city",
+      "model": "OdooResPartnerQueryModel",
+      "embedded": {
+        "rows": 0,
+        "sql": "",
+        "data": []
+      },
+      "java": {
+        "rows": 0,
+        "sql": "",
+        "data": []
+      },
+      "python": {
+        "rows": 0,
+        "sql": "",
+        "data": []
+      }
+    },
+    {
+      "id": "T02",
+      "name": "res_company: name",
+      "model": "OdooResCompanyQueryModel",
+      "embedded": {
+        "rows": 2,
+        "sql": "",
+        "data": [
+          {
+            "name": "My Company (Chicago)"
+          },
+          {
+            "name": "My Company (San Francisco)"
+          }
+        ]
+      },
+      "java": {
+        "rows": 2,
+        "sql": "",
+        "data": [
+          {
+            "name": "My Company (Chicago)"
+          },
+          {
+            "name": "My Company (San Francisco)"
+          }
+        ]
+      },
+      "python": {
+        "rows": 2,
+        "sql": "",
+        "data": [
+          {
+            "name": "My Company (Chicago)"
+          },
+          {
+            "name": "My Company (San Francisco)"
+          }
+        ]
+      }
+    },
+    {
+      "id": "T03",
+      "name": "hr_employee: name",
+      "model": "OdooHrEmployeeQueryModel",
+      "embedded": {
+        "rows": 20,
+        "sql": "",
+        "data": [
+          {
+            "name": "Beth Evans"
+          },
+          {
+            "name": "Walter Horton"
+          },
+          {
+            "name": "Paul Williams"
+          }
+        ]
+      },
+      "java": {
+        "rows": 20,
+        "sql": "",
+        "data": [
+          {
+            "name": "Beth Evans"
+          },
+          {
+            "name": "Walter Horton"
+          },
+          {
+            "name": "Paul Williams"
+          }
+        ]
+      },
+      "python": {
+        "rows": 20,
+        "sql": "",
+        "data": [
+          {
+            "name": "Beth Evans"
+          },
+          {
+            "name": "Walter Horton"
+          },
+          {
+            "name": "Paul Williams"
+          }
+        ]
+      }
+    },
+    {
+      "id": "T04",
+      "name": "crm_lead: name",
+      "model": "OdooCrmLeadQueryModel",
+      "embedded": {
+        "rows": 44,
+        "sql": "",
+        "data": [
+          {
+            "name": "Quote for 35 windows"
+          },
+          {
+            "name": "Modernize old offices"
+          },
+          {
+            "name": "Furnitures for new location"
+          }
+        ]
+      },
+      "java": {
+        "rows": 44,
+        "sql": "",
+        "data": [
+          {
+            "name": "Quote for 35 windows"
+          },
+          {
+            "name": "Modernize old offices"
+          },
+          {
+            "name": "Furnitures for new location"
+          }
+        ]
+      },
+      "python": {
+        "rows": 44,
+        "sql": "",
+        "data": [
+          {
+            "name": "Quote for 35 windows"
+          },
+          {
+            "name": "Modernize old offices"
+          },
+          {
+            "name": "Furnitures for new location"
+          }
+        ]
+      }
+    },
+    {
+      "id": "T05",
+      "name": "sale_order: name+amountTotal",
+      "model": "OdooSaleOrderQueryModel",
+      "embedded": {
+        "rows": 24,
+        "sql": "",
+        "data": [
+          {
+            "name": "S00024",
+            "amountTotal": 2288.5
+          },
+          {
+            "name": "S00023",
+            "amountTotal": 5002.5
+          },
+          {
+            "name": "S00022",
+            "amountTotal": 1696.25
+          }
+        ]
+      },
+      "java": {
+        "rows": 24,
+        "sql": "",
+        "data": [
+          {
+            "name": "S00024",
+            "amountTotal": 2288.5
+          },
+          {
+            "name": "S00023",
+            "amountTotal": 5002.5
+          },
+          {
+            "name": "S00022",
+            "amountTotal": 1696.25
+          }
+        ]
+      },
+      "python": {
+        "rows": 24,
+        "sql": "",
+        "data": [
+          {
+            "name": "S00024",
+            "amountTotal": 2288.5
+          },
+          {
+            "name": "S00023",
+            "amountTotal": 5002.5
+          },
+          {
+            "name": "S00022",
+            "amountTotal": 1696.25
+          }
+        ]
+      }
+    },
+    {
+      "id": "T06",
+      "name": "purchase_order: name",
+      "model": "OdooPurchaseOrderQueryModel",
+      "embedded": {
+        "rows": 11,
+        "sql": "",
+        "data": [
+          {
+            "name": "P00011"
+          },
+          {
+            "name": "P00010"
+          },
+          {
+            "name": "P00009"
+          }
+        ]
+      },
+      "java": {
+        "rows": 11,
+        "sql": "",
+        "data": [
+          {
+            "name": "P00011"
+          },
+          {
+            "name": "P00010"
+          },
+          {
+            "name": "P00009"
+          }
+        ]
+      },
+      "python": {
+        "rows": 11,
+        "sql": "",
+        "data": [
+          {
+            "name": "P00011"
+          },
+          {
+            "name": "P00010"
+          },
+          {
+            "name": "P00009"
+          }
+        ]
+      }
+    },
+    {
+      "id": "T07",
+      "name": "account_move: name",
+      "model": "OdooAccountMoveQueryModel",
+      "embedded": {
+        "rows": 24,
+        "sql": "",
+        "data": [
+          {
+            "name": "BNK1/2026/00008"
+          },
+          {
+            "name": "BNK1/2026/00007"
+          },
+          {
+            "name": "BNK1/2026/00006"
+          }
+        ]
+      },
+      "java": {
+        "rows": 24,
+        "sql": "",
+        "data": [
+          {
+            "name": "BNK1/2026/00008"
+          },
+          {
+            "name": "BNK1/2026/00007"
+          },
+          {
+            "name": "BNK1/2026/00006"
+          }
+        ]
+      },
+      "python": {
+        "rows": 24,
+        "sql": "",
+        "data": [
+          {
+            "name": "BNK1/2026/00008"
+          },
+          {
+            "name": "BNK1/2026/00007"
+          },
+          {
+            "name": "BNK1/2026/00006"
+          }
+        ]
+      }
+    },
+    {
+      "id": "T08",
+      "name": "stock_picking: name",
+      "model": "OdooStockPickingQueryModel",
+      "embedded": {
+        "rows": 25,
+        "sql": "",
+        "data": [
+          {
+            "name": "WH/OUT/00011"
+          },
+          {
+            "name": "WH/OUT/00010"
+          },
+          {
+            "name": "WH/OUT/00009"
+          }
+        ]
+      },
+      "java": {
+        "rows": 25,
+        "sql": "",
+        "data": [
+          {
+            "name": "WH/OUT/00011"
+          },
+          {
+            "name": "WH/OUT/00010"
+          },
+          {
+            "name": "WH/OUT/00009"
+          }
+        ]
+      },
+      "python": {
+        "rows": 25,
+        "sql": "",
+        "data": [
+          {
+            "name": "WH/OUT/00011"
+          },
+          {
+            "name": "WH/OUT/00010"
+          },
+          {
+            "name": "WH/OUT/00009"
+          }
+        ]
+      }
+    },
+    {
+      "id": "T10",
+      "name": "agg: companyCount",
+      "model": "OdooResCompanyQueryModel",
+      "embedded": {
+        "rows": 2,
+        "sql": "",
+        "data": [
+          {
+            "companyCount": 2
+          },
+          {
+            "companyCount": 1
+          }
+        ]
+      },
+      "java": {
+        "rows": 2,
+        "sql": "",
+        "data": [
+          {
+            "companyCount": 2
+          },
+          {
+            "companyCount": 1
+          }
+        ]
+      },
+      "python": {
+        "rows": 2,
+        "sql": "",
+        "data": [
+          {
+            "companyCount": 2
+          },
+          {
+            "companyCount": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "T11",
+      "name": "agg: employeeCount",
+      "model": "OdooHrEmployeeQueryModel",
+      "embedded": {
+        "rows": 20,
+        "sql": "",
+        "data": [
+          {
+            "employeeCount": 20
+          },
+          {
+            "employeeCount": 19
+          },
+          {
+            "employeeCount": 18
+          }
+        ]
+      },
+      "java": {
+        "rows": 20,
+        "sql": "",
+        "data": [
+          {
+            "employeeCount": 20
+          },
+          {
+            "employeeCount": 19
+          },
+          {
+            "employeeCount": 18
+          }
+        ]
+      },
+      "python": {
+        "rows": 20,
+        "sql": "",
+        "data": [
+          {
+            "employeeCount": 20
+          },
+          {
+            "employeeCount": 19
+          },
+          {
+            "employeeCount": 18
+          }
+        ]
+      }
+    },
+    {
+      "id": "T15",
+      "name": "join: dept+employeeCount",
+      "model": "OdooHrEmployeeQueryModel",
+      "embedded": {
+        "rows": 7,
+        "sql": "",
+        "data": [
+          {
+            "department$caption": "Management",
+            "employeeCount": 2
+          },
+          {
+            "department$caption": "Management / Administration",
+            "employeeCount": 1
+          },
+          {
+            "department$caption": "Management / Professional Services",
+            "employeeCount": 5
+          }
+        ]
+      },
+      "java": {
+        "rows": 7,
+        "sql": "",
+        "data": [
+          {
+            "department$caption": "Management",
+            "employeeCount": 2
+          },
+          {
+            "department$caption": "Management / Administration",
+            "employeeCount": 1
+          },
+          {
+            "department$caption": "Management / Professional Services",
+            "employeeCount": 5
+          }
+        ]
+      },
+      "python": {
+        "rows": 7,
+        "sql": "",
+        "data": [
+          {
+            "department$caption": "Management",
+            "employeeCount": 2
+          },
+          {
+            "department$caption": "Management / Administration",
+            "employeeCount": 1
+          },
+          {
+            "department$caption": "Management / Professional Services",
+            "employeeCount": 5
+          }
+        ]
+      }
+    },
+    {
+      "id": "T16",
+      "name": "join: partner by country",
+      "model": "OdooResPartnerQueryModel",
+      "embedded": {
+        "rows": 0,
+        "sql": "",
+        "data": []
+      },
+      "java": {
+        "rows": 0,
+        "sql": "",
+        "data": []
+      },
+      "python": {
+        "rows": 0,
+        "sql": "",
+        "data": []
+      }
+    },
+    {
+      "id": "T22",
+      "name": "self-ref: company+parent",
+      "model": "OdooResCompanyQueryModel",
+      "embedded": {
+        "rows": 2,
+        "sql": "",
+        "data": [
+          {
+            "name": "My Company (Chicago)",
+            "parent$caption": null
+          },
+          {
+            "name": "My Company (San Francisco)",
+            "parent$caption": null
+          }
+        ]
+      },
+      "java": {
+        "rows": 2,
+        "sql": "",
+        "data": [
+          {
+            "name": "My Company (Chicago)",
+            "parent$caption": null
+          },
+          {
+            "name": "My Company (San Francisco)",
+            "parent$caption": null
+          }
+        ]
+      },
+      "python": {
+        "rows": 2,
+        "sql": "",
+        "data": [
+          {
+            "name": "My Company (Chicago)",
+            "parent$caption": null
+          },
+          {
+            "name": "My Company (San Francisco)",
+            "parent$caption": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "T31",
+      "name": "sort: crm expectedRevenue DESC",
+      "model": "OdooCrmLeadQueryModel",
+      "embedded": {
+        "rows": 44,
+        "sql": "",
+        "data": [
+          {
+            "name": "Acadia College Furnitures",
+            "expectedRevenue": null
+          },
+          {
+            "name": "Club Office More Desks",
+            "expectedRevenue": null
+          },
+          {
+            "name": "Quotation for 100 Desks",
+            "expectedRevenue": null
+          }
+        ]
+      },
+      "java": {
+        "rows": 44,
+        "sql": "",
+        "data": [
+          {
+            "name": "Acadia College Furnitures",
+            "expectedRevenue": null
+          },
+          {
+            "name": "Club Office More Desks",
+            "expectedRevenue": null
+          },
+          {
+            "name": "Quotation for 100 Desks",
+            "expectedRevenue": null
+          }
+        ]
+      },
+      "python": {
+        "rows": 44,
+        "sql": "",
+        "data": [
+          {
+            "name": "Acadia College Furnitures",
+            "expectedRevenue": null
+          },
+          {
+            "name": "Club Office More Desks",
+            "expectedRevenue": null
+          },
+          {
+            "name": "Quotation for 100 Desks",
+            "expectedRevenue": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "T42",
+      "name": "agg: employeeCount total",
+      "model": "OdooHrEmployeeQueryModel",
+      "embedded": {
+        "rows": 20,
+        "sql": "",
+        "data": [
+          {
+            "employeeCount": 20
+          },
+          {
+            "employeeCount": 19
+          },
+          {
+            "employeeCount": 18
+          }
+        ]
+      },
+      "java": {
+        "rows": 20,
+        "sql": "",
+        "data": [
+          {
+            "employeeCount": 20
+          },
+          {
+            "employeeCount": 19
+          },
+          {
+            "employeeCount": 18
+          }
+        ]
+      },
+      "python": {
+        "rows": 20,
+        "sql": "",
+        "data": [
+          {
+            "employeeCount": 20
+          },
+          {
+            "employeeCount": 19
+          },
+          {
+            "employeeCount": 18
+          }
+        ]
+      }
+    }
+  ]
+}

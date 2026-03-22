@@ -1,43 +1,30 @@
 {
   "engine_mode": "java-gateway",
-  "server_url": "http://localhost:7108",
-  "database": "odoo_demo",
-  "timestamp": "2026-03-22T18:28:46",
+  "via": "odoo-mcp",
+  "server_url": "http://host.docker.internal:7108",
+  "namespace": "odoo",
+  "timestamp": "2026-03-22T19:34:30",
   "scenarios": [
     {
       "id": "T01",
-      "name": "partner: name+email+city",
+      "name": "res_partner: name+email+city",
       "model": "OdooResPartnerQueryModel",
       "success": true,
-      "row_count": 61,
-      "duration_ms": 14.28,
+      "row_count": 0,
+      "duration_ms": 49.65,
       "error": "",
-      "sample_data": [
-        {
-          "name": "Jeff Lawson",
-          "email": "jeff.lawson52@example.com",
-          "city": "Chicago"
-        },
-        {
-          "name": "My Company (Chicago)",
-          "email": "chicago@yourcompany.com",
-          "city": "Chicago"
-        },
-        {
-          "name": "Beth Evans",
-          "email": "beth.evans77@example.com",
-          "city": null
-        }
-      ]
+      "sql": "",
+      "sample_data": []
     },
     {
       "id": "T02",
-      "name": "company: name",
+      "name": "res_company: name",
       "model": "OdooResCompanyQueryModel",
       "success": true,
       "row_count": 2,
-      "duration_ms": 35.66,
+      "duration_ms": 47.41,
       "error": "",
+      "sql": "",
       "sample_data": [
         {
           "name": "My Company (Chicago)"
@@ -49,12 +36,13 @@
     },
     {
       "id": "T03",
-      "name": "employee: name",
+      "name": "hr_employee: name",
       "model": "OdooHrEmployeeQueryModel",
       "success": true,
       "row_count": 20,
-      "duration_ms": 487.05,
+      "duration_ms": 60.97,
       "error": "",
+      "sql": "",
       "sample_data": [
         {
           "name": "Beth Evans"
@@ -69,12 +57,13 @@
     },
     {
       "id": "T04",
-      "name": "crm lead: name",
+      "name": "crm_lead: name",
       "model": "OdooCrmLeadQueryModel",
       "success": true,
       "row_count": 44,
-      "duration_ms": 392.36,
+      "duration_ms": 45.95,
       "error": "",
+      "sql": "",
       "sample_data": [
         {
           "name": "Quote for 35 windows"
@@ -89,12 +78,13 @@
     },
     {
       "id": "T05",
-      "name": "sale order: name+amountTotal",
+      "name": "sale_order: name+amountTotal",
       "model": "OdooSaleOrderQueryModel",
       "success": true,
       "row_count": 24,
-      "duration_ms": 397.84,
+      "duration_ms": 59.59,
       "error": "",
+      "sql": "",
       "sample_data": [
         {
           "name": "S00024",
@@ -112,12 +102,13 @@
     },
     {
       "id": "T06",
-      "name": "purchase order: name",
+      "name": "purchase_order: name",
       "model": "OdooPurchaseOrderQueryModel",
       "success": true,
       "row_count": 11,
-      "duration_ms": 368.1,
+      "duration_ms": 47.21,
       "error": "",
+      "sql": "",
       "sample_data": [
         {
           "name": "P00011"
@@ -132,12 +123,13 @@
     },
     {
       "id": "T07",
-      "name": "account move: name",
+      "name": "account_move: name",
       "model": "OdooAccountMoveQueryModel",
       "success": true,
       "row_count": 24,
-      "duration_ms": 456.69,
+      "duration_ms": 46.91,
       "error": "",
+      "sql": "",
       "sample_data": [
         {
           "name": "BNK1/2026/00008"
@@ -152,12 +144,13 @@
     },
     {
       "id": "T08",
-      "name": "stock picking: name",
+      "name": "stock_picking: name",
       "model": "OdooStockPickingQueryModel",
       "success": true,
       "row_count": 25,
-      "duration_ms": 374.27,
+      "duration_ms": 46.11,
       "error": "",
+      "sql": "",
       "sample_data": [
         {
           "name": "WH/OUT/00011"
@@ -176,8 +169,9 @@
       "model": "OdooResCompanyQueryModel",
       "success": true,
       "row_count": 2,
-      "duration_ms": 46.3,
+      "duration_ms": 30.67,
       "error": "",
+      "sql": "",
       "sample_data": [
         {
           "companyCount": 2
@@ -193,8 +187,9 @@
       "model": "OdooHrEmployeeQueryModel",
       "success": true,
       "row_count": 20,
-      "duration_ms": 45.03,
+      "duration_ms": 46.03,
       "error": "",
+      "sql": "",
       "sample_data": [
         {
           "employeeCount": 20
@@ -209,12 +204,13 @@
     },
     {
       "id": "T15",
-      "name": "join: dept + employeeCount",
+      "name": "join: dept+employeeCount",
       "model": "OdooHrEmployeeQueryModel",
       "success": true,
       "row_count": 7,
-      "duration_ms": 48.9,
+      "duration_ms": 45.5,
       "error": "",
+      "sql": "",
       "sample_data": [
         {
           "department$caption": "Management",
@@ -235,19 +231,11 @@
       "name": "join: partner by country",
       "model": "OdooResPartnerQueryModel",
       "success": true,
-      "row_count": 2,
-      "duration_ms": 32.41,
+      "row_count": 0,
+      "duration_ms": 44.72,
       "error": "",
-      "sample_data": [
-        {
-          "country$caption": "United States",
-          "partnerCount": 38
-        },
-        {
-          "country$caption": null,
-          "partnerCount": 23
-        }
-      ]
+      "sql": "",
+      "sample_data": []
     },
     {
       "id": "T22",
@@ -255,8 +243,9 @@
       "model": "OdooResCompanyQueryModel",
       "success": true,
       "row_count": 2,
-      "duration_ms": 27.12,
+      "duration_ms": 47.25,
       "error": "",
+      "sql": "",
       "sample_data": [
         {
           "name": "My Company (Chicago)",
@@ -274,8 +263,9 @@
       "model": "OdooCrmLeadQueryModel",
       "success": true,
       "row_count": 44,
-      "duration_ms": 33.05,
+      "duration_ms": 49.23,
       "error": "",
+      "sql": "",
       "sample_data": [
         {
           "name": "Acadia College Furnitures",
@@ -297,8 +287,9 @@
       "model": "OdooHrEmployeeQueryModel",
       "success": true,
       "row_count": 20,
-      "duration_ms": 28.76,
+      "duration_ms": 45.3,
       "error": "",
+      "sql": "",
       "sample_data": [
         {
           "employeeCount": 20
