@@ -16,7 +16,7 @@
                             <span class="foggy-session-name" t-esc="session.name"/>
                             <button class="foggy-session-delete btn btn-link btn-sm text-danger p-0"
                                     t-on-click="(ev) => this.deleteSession(ev, session.id)"
-                                    t-att-title="_t('Delete')">
+                                    title="删除">
                                 <i class="fa fa-trash-o"/>
                             </button>
                         </div>
@@ -115,7 +115,7 @@
                             t-att-value="state.inputText"
                             t-on-input="(ev) => { this.state.inputText = ev.target.value; }"
                             t-on-keydown="onKeydown"
-                            t-att-placeholder="_t('Ask about your business data...')"
+                            placeholder="询问你的业务数据..."
                             rows="1"
                             t-att-disabled="state.loading"
                         />

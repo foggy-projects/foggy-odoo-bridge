@@ -132,13 +132,15 @@ def _build_system_prompt(env, uid):
 
 
 def _build_litellm_tools(env, uid):
-    """Convert Foggy MCP tools to litellm/OpenAI function calling format."""
-    from .tool_registry import ToolRegistry
-    from .foggy_client import FoggyClient
+    """Convert Foggy MCP tools to litellm/OpenAI function calling format.
+
+    Uses the unified engine backend (embedded or gateway) via mcp_controller,
+    instead of creating a separate FoggyClient.
+    """
+    from ..controllers.mcp_controller import _get_engine_backend, _get_tool_registry
 
     try:
-        client = FoggyClient.from_config(env)
-        registry = ToolRegistry(client, cache_ttl=300)
+        registry = _get_tool_registry(env)
         foggy_tools = registry.get_tools_for_user(env, uid)
     except Exception as e:
         _logger.error("Failed to load tools for LLM: %s", e)
@@ -200,10 +202,11 @@ def _execute_tool_call(env, uid, tool_name, arguments, reverse_name_map=None):
                 _logger.error("Permission injection failed for chat: %s", e)
                 return {'error': f'Permission check failed: {e}'}
 
-    # Call Foggy
+    # Call through unified engine backend (embedded or gateway)
     try:
-        client = FoggyClient.from_config(env)
-        result = client.call_tools_call(original_name, arguments)
+        from ..controllers.mcp_controller import _get_engine_backend
+        backend = _get_engine_backend(env)
+        result = backend.call_tools_call(original_name, arguments)
         return result
     except Exception as e:
         _logger.error("Tool call failed: %s — %s", original_name, e)

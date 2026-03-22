@@ -2,6 +2,7 @@
 import { Component, useState, useRef, onMounted, onWillUnmount, markup } from "@odoo/owl";
 import { registry } from "@web/core/registry";
 import { useService } from "@web/core/utils/hooks";
+import { _t } from "@web/core/l10n/translation";
 
 /**
  * Foggy AI Chat — Full-page OWL component for LLM-powered data analysis.
