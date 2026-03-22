@@ -8,18 +8,21 @@
 #   ./upgrade_module.sh [module_name] [database_name] [container_name]
 #
 # Examples:
-#   ./upgrade_module.sh                    # Upgrade foggy_mcp in odoo database
-#   ./upgrade_module.sh foggy_mcp          # Upgrade foggy_mcp in odoo database
-#   ./upgrade_module.sh foggy_mcp odoo     # Upgrade foggy_mcp in odoo database
-#   ./upgrade_module.sh sale odoo odoo-17  # Upgrade sale in odoo database, custom container
+#   ./upgrade_module.sh                         # Upgrade foggy_mcp in odoo_demo
+#   ./upgrade_module.sh foggy_mcp               # Upgrade foggy_mcp in odoo_demo
+#   ./upgrade_module.sh foggy_mcp odoo_demo     # Upgrade foggy_mcp in odoo_demo
+#   ./upgrade_module.sh sale odoo odoo-17       # Upgrade sale in odoo database, custom container
 #
 
 set -e
 
 # Default values
 MODULE_NAME="${1:-foggy_mcp}"
-DATABASE_NAME="${2:-odoo}"
+DATABASE_NAME="${2:-odoo_demo}"
 CONTAINER_NAME="${3:-foggy-odoo}"
+DB_HOST="${DB_HOST:-foggy-odoo-postgres}"
+DB_USER="${DB_USER:-odoo}"
+DB_PASSWORD="${DB_PASSWORD:-odoo}"
 WAIT_SECONDS="${WAIT_SECONDS:-5}"
 
 echo "=========================================="
@@ -52,7 +55,7 @@ sleep "${WAIT_SECONDS}"
 # Step 3: Upgrade module (runs a separate odoo process, then exits)
 echo ""
 echo "[3/4] Upgrading module '${MODULE_NAME}' in database '${DATABASE_NAME}'..."
-docker exec "${CONTAINER_NAME}" bash -c "odoo -d ${DATABASE_NAME} -u ${MODULE_NAME} --stop-after-init"
+docker exec "${CONTAINER_NAME}" bash -c "odoo -d ${DATABASE_NAME} -u ${MODULE_NAME} --stop-after-init --db_host=${DB_HOST} --db_user=${DB_USER} --db_password=${DB_PASSWORD}"
 
 # Step 4: Restart to load the upgraded module in the main Odoo process
 echo ""

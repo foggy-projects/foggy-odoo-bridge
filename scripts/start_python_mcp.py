@@ -56,29 +56,6 @@ def _patch_fsscript_spi_services():
     FileModuleLoader.load_module = _patched_load
 
 
-def _register_qm_aliases(semantic_service):
-    """Register QM name aliases for loaded TM models.
-
-    TM files register as 'OdooSaleOrderModel', but MCP queries use QM names
-    like 'OdooSaleOrderQueryModel'. This creates aliases following the
-    Java naming convention: insert 'Query' before 'Model' suffix.
-
-    Example: OdooSaleOrderModel → OdooSaleOrderQueryModel
-    """
-    from foggy.dataset_model.impl.model import DbTableModelImpl
-
-    model_names = list(semantic_service.get_all_model_names())
-    for name in model_names:
-        if name.endswith('Model') and 'Query' not in name:
-            qm_name = name[:-len('Model')] + 'QueryModel'
-            model = semantic_service.get_model(name)
-            if model and not semantic_service.get_model(qm_name):
-                # Direct dict access — SemanticQueryService stores models in _models
-                semantic_service._models[qm_name] = model
-                logging.getLogger(__name__).info(
-                    "Registered QM alias: %s → %s", qm_name, name
-                )
-
 
 def main():
     parser = argparse.ArgumentParser(description='Start Python MCP Server with Odoo TM/QM models')
@@ -136,19 +113,6 @@ def main():
         data_source_configs=[ds_config],
         load_demo_models=False,
     )
-
-    # Register QM aliases after lifespan startup via middleware (runs on first request)
-    _aliases_registered = False
-
-    @app.middleware("http")
-    async def register_qm_aliases_on_first_request(request, call_next):
-        nonlocal _aliases_registered
-        if not _aliases_registered and hasattr(app.state, 'foggy'):
-            _register_qm_aliases(app.state.foggy.semantic_service)
-            model_names = app.state.foggy.semantic_service.get_all_model_names()
-            print(f"\n  Models available ({len(model_names)}): {model_names}")
-            _aliases_registered = True
-        return await call_next(request)
 
     print(f"\n  Starting on http://{args.host}:{args.port}")
     print(f"  Health: http://localhost:{args.port}/health")
