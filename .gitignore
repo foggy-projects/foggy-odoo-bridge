@@ -34,3 +34,4 @@ chart-images/
 .foggy-mcp.pid
 foggy-mcp.log
 foggy-mcp-err.log
+tmp/
