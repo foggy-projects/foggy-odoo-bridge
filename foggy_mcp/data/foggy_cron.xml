@@ -2,19 +2,33 @@
 <odoo>
     <data noupdate="1">
 
-        <!-- ═══ Closure Tables Refresh ═══ -->
-        <!-- Refreshes all 4 closure tables daily at 03:00 AM -->
-        <!-- Tables: res_company_closure, hr_department_closure,
-             hr_employee_closure, res_partner_closure -->
+        <!-- ═══ Closure Tables: Dirty Flag Flush (high frequency) ═══ -->
+        <!-- Checks dirty flags every 5 minutes; only refreshes tables
+             whose parent_id changed since last flush.
+             ORM hooks mark dirty (fast), this cron does the actual refresh. -->
+        <record id="foggy_cron_flush_dirty_closures" model="ir.cron">
+            <field name="name">Foggy MCP: 闭包表脏数据刷新</field>
+            <field name="model_id" ref="model_foggy_closure_cron"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_flush_dirty()</field>
+            <field name="interval_number">5</field>
+            <field name="interval_type">minutes</field>
+            <field name="numbercall">-1</field>
+            <field name="active">True</field>
+            <field name="priority">50</field>
+        </record>
+
+        <!-- ═══ Closure Tables: Daily Full Refresh (safety net) ═══ -->
+        <!-- Full rebuild once per day as fallback, catches any changes
+             missed by ORM hooks (e.g. direct SQL modifications). -->
         <record id="foggy_cron_refresh_closures" model="ir.cron">
-            <field name="name">Foggy MCP: 刷新闭包表</field>
+            <field name="name">Foggy MCP: 闭包表每日全量刷新</field>
             <field name="model_id" ref="base.model_ir_cron"/>
             <field name="state">code</field>
             <field name="code">
 env.cr.execute("SELECT EXISTS(SELECT 1 FROM pg_proc WHERE proname = 'refresh_all_closures')")
 if env.cr.fetchone()[0]:
     env.cr.execute("SELECT refresh_all_closures()")
-    env.cr.connection.commit()
             </field>
             <field name="interval_number">1</field>
             <field name="interval_type">days</field>
@@ -24,16 +38,15 @@ if env.cr.fetchone()[0]:
         </record>
 
         <!-- ═══ Date Dimension Table Refresh ═══ -->
-        <!-- Refreshes dim_date yearly (extends range if needed) -->
+        <!-- Monthly check — extends date range if approaching end year. -->
         <record id="foggy_cron_refresh_dim_date" model="ir.cron">
-            <field name="name">Foggy MCP: 刷新日期维表</field>
+            <field name="name">Foggy MCP: 日期维表月度刷新</field>
             <field name="model_id" ref="base.model_ir_cron"/>
             <field name="state">code</field>
             <field name="code">
 env.cr.execute("SELECT EXISTS(SELECT 1 FROM pg_proc WHERE proname = 'create_or_refresh_dim_date')")
 if env.cr.fetchone()[0]:
     env.cr.execute("SELECT create_or_refresh_dim_date(2020, 2035)")
-    env.cr.connection.commit()
             </field>
             <field name="interval_number">1</field>
             <field name="interval_type">months</field>
