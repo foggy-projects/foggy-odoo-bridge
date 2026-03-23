@@ -810,11 +810,16 @@ def _leaf_to_condition(leaf, negate=False, ctx=None):
     condition = {
         'field': qm_field,
         'op': dsl_op,
-        'value': value,
     }
 
-    # Remove value for null operators
-    if dsl_op in ('is null', 'is not null'):
-        condition.pop('value', None)
+    # For IN/NOT IN with list values, use 'values' key (not 'value')
+    # because foggy-python's _add_filter expects:
+    #   filter_item.get("values", [value] if value else [])
+    # If we pass value=[1,2], it becomes [[1,2]] (double-wrapped).
+    # Using 'values' key avoids the wrapping issue.
+    if dsl_op in ('in', 'not in') and isinstance(value, list):
+        condition['values'] = value
+    elif dsl_op not in ('is null', 'is not null'):
+        condition['value'] = value
 
     return condition

@@ -102,10 +102,32 @@ class SemanticQueryService(SemanticServiceResolver):
         escaped = identifier.replace('"', '""')
         return f'"{escaped}"'
 
-    def register_model(self, model: DbTableModelImpl) -> None:
-        """Register a table model with the service."""
-        self._models[model.name] = model
-        logger.info(f"Registered model: {model.name}")
+    def register_model(self, model: DbTableModelImpl, namespace: Optional[str] = None) -> None:
+        """Register a table model with the service.
+
+        If model.name already contains a namespace prefix (``ns:Name``),
+        it is registered as-is. Otherwise, if ``namespace`` is provided,
+        the model is registered under ``namespace:model.name``.
+
+        The model is also accessible by its bare name (without namespace
+        prefix) as a fallback, unless another model with the same bare
+        name is already registered.
+
+        Aligned with Java's ``namespace:modelName`` composite key pattern.
+        """
+        key = model.name
+        if namespace and ":" not in key:
+            key = f"{namespace}:{key}"
+            model.name = key
+
+        self._models[key] = model
+
+        # Also register bare name as fallback (don't overwrite existing)
+        bare_name = key.split(":", 1)[1] if ":" in key else key
+        if bare_name != key and bare_name not in self._models:
+            self._models[bare_name] = model
+
+        logger.info(f"Registered model: {key}")
 
     def unregister_model(self, name: str) -> bool:
         """Unregister a model by name."""
@@ -115,12 +137,36 @@ class SemanticQueryService(SemanticServiceResolver):
             return True
         return False
 
+    def unregister_by_namespace(self, namespace: str) -> int:
+        """Unregister all models belonging to a namespace.
+
+        Aligned with Java ``TableModelLoaderManager.clearByNamespace()``.
+
+        Args:
+            namespace: Namespace prefix to clear (e.g., ``"odoo"``)
+
+        Returns:
+            Number of models removed
+        """
+        prefix = f"{namespace}:"
+        to_remove = [k for k in self._models if k.startswith(prefix)]
+        for k in to_remove:
+            del self._models[k]
+        if to_remove:
+            self.invalidate_model_cache()
+            logger.info(f"Unregistered {len(to_remove)} models from namespace '{namespace}'")
+        return len(to_remove)
+
     def get_model(self, name: str) -> Optional[DbTableModelImpl]:
-        """Get a registered model by name."""
+        """Get a registered model by name.
+
+        Supports both namespaced (``"odoo:OdooSaleOrderModel"``) and
+        bare (``"OdooSaleOrderModel"``) lookups.
+        """
         return self._models.get(name)
 
     def get_all_model_names(self) -> List[str]:
-        """Get all registered model names."""
+        """Get all registered model names (including namespace-prefixed)."""
         return list(self._models.keys())
 
     def invalidate_model_cache(self) -> None:
@@ -492,6 +538,48 @@ class SemanticQueryService(SemanticServiceResolver):
 
     # ==================== Calculated Fields & Window Functions ====================
 
+    # Allowed SQL functions whitelist (aligned with Java AllowedFunctions.java).
+    # Only these functions are permitted in calculated fields and expressions.
+    # Any function call not in this set will be rejected to prevent SQL injection.
+    _ALLOWED_FUNCTIONS = frozenset({
+        # Aggregate (7)
+        'SUM', 'AVG', 'COUNT', 'MIN', 'MAX', 'GROUP_CONCAT',
+        'COUNT_DISTINCT',
+        # Statistical aggregate (4)
+        'STDDEV_POP', 'STDDEV_SAMP', 'VAR_POP', 'VAR_SAMP',
+        # Window (10)
+        'ROW_NUMBER', 'RANK', 'DENSE_RANK', 'NTILE',
+        'LAG', 'LEAD', 'FIRST_VALUE', 'LAST_VALUE',
+        'CUME_DIST', 'PERCENT_RANK',
+        # String (12)
+        'CONCAT', 'CONCAT_WS', 'SUBSTRING', 'SUBSTR', 'LEFT', 'RIGHT',
+        'LTRIM', 'RTRIM', 'LPAD', 'RPAD', 'REPLACE', 'LOCATE',
+        'CHAR_LENGTH', 'INSTR', 'UPPER', 'LOWER', 'TRIM',
+        # Numeric (7)
+        'ABS', 'ROUND', 'FLOOR', 'CEIL', 'CEILING', 'MOD', 'POWER', 'SQRT',
+        # Date (12)
+        'YEAR', 'MONTH', 'DAY', 'HOUR', 'MINUTE', 'SECOND',
+        'DATE_FORMAT', 'STR_TO_DATE', 'DATE_ADD', 'DATE_SUB',
+        'DATEDIFF', 'TIMESTAMPDIFF', 'EXTRACT',
+        'TIME', 'CURRENT_TIME', 'CURRENT_TIMESTAMP',
+        # Conditional / type (8)
+        'COALESCE', 'IFNULL', 'NVL', 'NULLIF', 'IF', 'CAST', 'CONVERT', 'ISNULL',
+        # Misc
+        'DISTINCT',
+    })
+
+    @classmethod
+    def validate_function(cls, func_name: str) -> bool:
+        """Check if a function name is in the allowed whitelist.
+
+        Args:
+            func_name: Function name (case-insensitive)
+
+        Returns:
+            True if allowed, False otherwise
+        """
+        return func_name.upper() in cls._ALLOWED_FUNCTIONS
+
     # SQL keywords and function names that should NOT be treated as field references
     _SQL_KEYWORDS = frozenset({
         'AND', 'OR', 'NOT', 'AS', 'BETWEEN', 'CASE', 'WHEN', 'THEN', 'ELSE', 'END',
@@ -548,6 +636,16 @@ class SemanticQueryService(SemanticServiceResolver):
             return stripped
 
         keywords = self._SQL_KEYWORDS
+        allowed_funcs = self._ALLOWED_FUNCTIONS
+
+        # Validate function calls in expression against whitelist
+        func_calls = re.findall(r'\b(\w+)\s*\(', expression)
+        for func_name in func_calls:
+            if func_name.upper() not in allowed_funcs and func_name.upper() not in keywords:
+                raise ValueError(
+                    f"Function '{func_name}' is not in the allowed function whitelist. "
+                    f"Allowed functions: {sorted(allowed_funcs)}"
+                )
 
         def replace_field(match: re.Match) -> str:
             token = match.group(0)
@@ -659,10 +757,33 @@ class SemanticQueryService(SemanticServiceResolver):
             dim = model.get_dimension(column)
             col_expr = f"t.{dim.column}" if dim else f"t.{column}"
 
+        # Check for $field value reference: {"value": {"$field": "otherField"}}
+        # Generates field-to-field comparison: col_a > col_b (no bind param)
+        if isinstance(value, dict) and "$field" in value:
+            ref_field = value["$field"]
+            ref_resolved = model.resolve_field(ref_field)
+            if ref_resolved:
+                ref_expr = ref_resolved["sql_expr"]
+                if ref_resolved["join_def"] and ensure_join:
+                    ensure_join(ref_resolved["join_def"])
+            else:
+                ref_dim = model.get_dimension(ref_field)
+                ref_expr = f"t.{ref_dim.column}" if ref_dim else f"t.{ref_field}"
+
+            # Map operator to SQL
+            op_map = {"=": "=", "eq": "=", "!=": "<>", "<>": "<>", "neq": "<>",
+                       ">": ">", "gt": ">", ">=": ">=", "gte": ">=",
+                       "<": "<", "lt": "<", "<=": "<=", "lte": "<=",
+                       "===": "=", "force_eq": "="}
+            sql_op = op_map.get(operator, operator)
+            builder.where(f"{col_expr} {sql_op} {ref_expr}")
+            return
+
         # Resolve value: support "values" key for IN, or range from filter_item
         effective_value = value
         if operator.upper() in ("IN", "NOT IN", "NIN"):
-            effective_value = filter_item.get("values", [value] if value else [])
+            raw = filter_item.get("values") or filter_item.get("value")
+            effective_value = raw if isinstance(raw, list) else ([raw] if raw is not None else [])
         elif operator.upper() == "BETWEEN":
             from_val = filter_item.get("from")
             to_val = filter_item.get("to")
@@ -1038,13 +1159,14 @@ class SemanticQueryService(SemanticServiceResolver):
                         "description": prop.description or prop.caption or prop_name,
                     }
 
-            # Fact table own dimensions → expand to $id and $caption
+            # Fact table own dimensions → use plain field name (no $id suffix)
+            # These are simple attributes on the fact table (e.g. orderId, orderStatus),
+            # NOT join dimensions, so they should be referenced directly by name.
             for dim_name, dim in model.dimensions.items():
-                id_fn = f"{dim_name}$id"
-                if id_fn not in fields:
-                    fields[id_fn] = {
-                        "name": f"{dim.alias or dim_name}(ID)",
-                        "fieldName": id_fn,
+                if dim_name not in fields:
+                    fields[dim_name] = {
+                        "name": dim.alias or dim_name,
+                        "fieldName": dim_name,
                         "meta": f"属性 | {dim.data_type.value}",
                         "type": dim.data_type.value.upper(),
                         "filterType": "text",
@@ -1054,7 +1176,7 @@ class SemanticQueryService(SemanticServiceResolver):
                         "sourceColumn": dim.column,
                         "models": {},
                     }
-                fields[id_fn]["models"][model_name] = {
+                fields[dim_name]["models"][model_name] = {
                     "description": dim.description or dim.alias or dim_name,
                 }
 

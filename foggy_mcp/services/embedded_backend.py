@@ -67,27 +67,30 @@ class EmbeddedBackend(EngineBackend):
                       len(self._service.get_all_model_names()))
 
     def _register_models(self):
-        """注册 Odoo TM/QM 模型。
+        """从 TM/QM 文件加载 Odoo 模型。
 
-        优先注册 9 个 Odoo 专用模型（从 Java TM/QM 移植）。
-        如果导入失败（foggy-python 版本不兼容），回退到 demo 模型。
+        使用 foggy-python 的 load_models_from_directory() 从
+        foggy_mcp/setup/foggy-models/ 加载标准 TM/QM 文件。
+        这是模型的唯一权威源，与 Java/Python 网关共用同一套定义。
         """
-        try:
-            from ..embedded_models import register_all_odoo_models
-            count = register_all_odoo_models(self._service)
-            if count > 0:
-                _logger.info("已注册 %d 个 Odoo 模型", count)
-                return
-        except Exception as e:
-            _logger.warning("Odoo 模型注册失败，回退到 demo 模型：%s", e)
+        import os
+        from foggy.dataset_model.impl.loader import load_models_from_directory
 
-        # 回退：注册 demo 模型
+        # 定位 TM/QM 文件目录：foggy_mcp/setup/foggy-models/
+        module_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        model_dir = os.path.join(module_dir, 'setup', 'foggy-models')
+
+        if not os.path.isdir(model_dir):
+            _logger.error("TM/QM 模型目录不存在：%s", model_dir)
+            return
+
         try:
-            from foggy.demo.models.ecommerce_models import register_all_models
-            register_all_models(self._service)
-            _logger.info("已注册 demo ecommerce 模型（回退）")
+            models = load_models_from_directory(model_dir)
+            for model in models:
+                self._service.register_model(model)
+            _logger.info("已从 TM/QM 加载 %d 个模型（目录：%s）", len(models), model_dir)
         except Exception as e:
-            _logger.error("模型注册失败：%s", e)
+            _logger.error("TM/QM 模型加载失败：%s", e, exc_info=True)
 
     def call_tools_list(self):
         """返回工具定义列表。"""
@@ -99,7 +102,8 @@ class EmbeddedBackend(EngineBackend):
         """执行工具调用。"""
         self._ensure_initialized()
 
-        _logger.info("EmbeddedBackend.call_tools_call: tool=%s", tool_name)
+        _logger.info("EmbeddedBackend.call_tools_call: tool=%s, args=%s",
+                     tool_name, json.dumps(arguments, ensure_ascii=False, default=str)[:500])
 
         try:
             if tool_name == 'dataset.query_model':
@@ -146,19 +150,42 @@ class EmbeddedBackend(EngineBackend):
         return self._mcp_result(response)
 
     def _handle_get_metadata(self, arguments):
-        """处理 dataset.get_metadata 调用。"""
-        response = self._accessor.get_metadata()
-        return self._mcp_result(response)
+        """处理 dataset.get_metadata 调用。
+
+        默认使用 markdown 格式（与 Java LocalDatasetAccessor 一致），
+        因为 Python V3 JSON 版的自有维度字段名有 $id 后缀 Bug。
+        Markdown 版正确且 token 更少（~40-60%）。
+
+        See: docs/api-signature-mismatch-report-2026-03-23.md
+        """
+        fmt = arguments.get('format', 'markdown')
+        if fmt == 'json':
+            result = self._service.get_metadata_v3()
+            return self._mcp_result(result)
+        else:
+            result = self._service.get_metadata_v3_markdown()
+            return self._mcp_result(result)
 
     def _handle_describe_model(self, arguments):
-        """处理 dataset.describe_model_internal 调用。"""
+        """处理 dataset.describe_model_internal 调用。
+
+        默认使用 markdown 格式（属性字段名正确，无错误 $id 后缀）。
+        Python V3 JSON 版的 get_metadata_v3() 对自有维度错误追加 $id，
+        待 Python 团队修复后可切回 json。
+
+        See: docs/api-signature-mismatch-report-2026-03-23.md
+        """
         model = arguments.get('model')
         if not model:
             return self._mcp_result("缺少 model 参数")
 
-        fmt = arguments.get('format', 'json')
-        response = self._accessor.describe_model(model, format=fmt)
-        return self._mcp_result(response)
+        fmt = arguments.get('format', 'markdown')
+        if fmt == 'json':
+            result = self._service.get_metadata_v3([model])
+            return self._mcp_result(result)
+        else:
+            result = self._service.get_metadata_v3_markdown([model])
+            return self._mcp_result(result)
 
     def _handle_list_models(self):
         """处理 dataset.list_models 调用。"""

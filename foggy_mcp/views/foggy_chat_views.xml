@@ -6,7 +6,20 @@
         <field name="tag">foggy_mcp.foggy_chat_action_client</field>
     </record>
 
-    <!-- 菜单：AI 对话 — 位于设置 → Foggy MCP 下 -->
+    <!-- ═══ 顶级菜单：Foggy AI（主导航栏） ═══ -->
+    <menuitem id="foggy_ai_menu_root"
+              name="Foggy AI"
+              web_icon="foggy_mcp,static/description/icon.png"
+              sequence="55"
+              groups="base.group_user"/>
+
+    <menuitem id="foggy_ai_menu_chat"
+              name="AI 对话"
+              parent="foggy_ai_menu_root"
+              action="foggy_chat_action"
+              sequence="10"/>
+
+    <!-- 菜单：AI 对话 — 也保留在设置 → Foggy MCP 下 -->
     <menuitem id="foggy_mcp_user_menu_chat"
               name="Foggy AI 对话"
               parent="foggy_mcp_menu_root"

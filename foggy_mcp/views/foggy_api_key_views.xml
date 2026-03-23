@@ -6,12 +6,12 @@
         <field name="model">foggy.api.key</field>
         <field name="arch" type="xml">
             <tree>
-                <field name="name"/>
-                <field name="user_id"/>
-                <field name="key_short"/>
-                <field name="active"/>
-                <field name="last_used"/>
-                <field name="create_date"/>
+                <field name="name" string="名称"/>
+                <field name="user_id" string="用户"/>
+                <field name="key_short" string="密钥预览"/>
+                <field name="active" string="启用" widget="boolean_toggle"/>
+                <field name="last_used" string="最后使用"/>
+                <field name="create_date" string="创建时间"/>
             </tree>
         </field>
     </record>

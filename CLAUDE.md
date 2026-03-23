@@ -33,23 +33,15 @@ foggy-odoo-bridge/
 ├── foggy_mcp/                    ← Odoo 17 插件主目录
 │   ├── __init__.py               ← sys.path 注入 lib/（vendored foggy）
 │   ├── __manifest__.py           ← Odoo 模块清单
-│   ├── lib/foggy/                ← vendored foggy-python 核心引擎（714K）
+│   ├── lib/foggy/                ← vendored foggy-python 核心引擎
 │   │   ├── core/                 ←   工具类
 │   │   ├── dataset/              ←   数据库抽象层（MySQL/PG/MSSQL/SQLite）
-│   │   ├── dataset_model/        ←   语义查询引擎（TM/QM）
+│   │   ├── dataset_model/        ←   语义查询引擎（TM/QM 加载 + SQL 构建）
 │   │   ├── mcp_spi/              ←   SPI 接口（DatasetAccessor）
 │   │   └── bean_copy/            ←   Bean 转换
-│   ├── embedded_models/          ← 9 个 Odoo Python 模型定义
-│   │   ├── registry.py           ←   注册中心
-│   │   ├── _helpers.py           ←   快捷构造函数
-│   │   ├── sale_order.py         ←   销售订单 + 订单行
-│   │   ├── purchase_order.py     ←   采购订单
-│   │   ├── account_move.py       ←   会计分录/发票
-│   │   ├── stock_picking.py      ←   库存调拨
-│   │   ├── hr_employee.py        ←   员工
-│   │   ├── res_partner.py        ←   合作伙伴
-│   │   ├── res_company.py        ←   公司
-│   │   └── crm_lead.py           ←   CRM 线索/商机
+│   ├── setup/foggy-models/       ← TM/QM 模型文件（内嵌模式的权威源）
+│   │   ├── model/*.tm            ←   9 个 Table Model 定义
+│   │   └── query/*.qm            ←   9 个 Query Model 定义
 │   ├── controllers/
 │   │   ├── mcp_controller.py     ← MCP JSON-RPC 端点（认证+权限+路由）
 │   │   └── chat_controller.py    ← AI 对话控制器
@@ -108,7 +100,7 @@ foggy-odoo-bridge/
 PY_SRC="../foggy-data-mcp-bridge-python/src/foggy"
 VENDOR="foggy_mcp/lib/foggy"
 rm -rf "$VENDOR" && mkdir -p "$VENDOR"
-cp -r "$PY_SRC"/{__init__.py,core,dataset,dataset_model,mcp_spi,bean_copy} "$VENDOR/"
+cp -r "$PY_SRC"/{__init__.py,core,dataset,dataset_model,mcp_spi,bean_copy,fsscript} "$VENDOR/"
 find "$VENDOR" -name "__pycache__" -exec rm -rf {} +
 ```
 
@@ -165,8 +157,8 @@ ir.rule → 行级过滤（域解析 → DSL slice → 注入 payload.slice）
 | OdooResCompanyModel | res_company | 公司 |
 | OdooCrmLeadModel | crm_lead | CRM 线索/商机 |
 
-**内嵌模式**：`embedded_models/` 中的 Python `DbTableModelImpl` 定义
-**网关模式**：Java 侧 `foggy-odoo-bridge-java` 的 TM/QM 文件
+**内嵌模式**：`setup/foggy-models/` 下的 TM/QM 文件，由 `load_models_from_directory()` 加载
+**网关模式**：由外部引擎（Java 或 Python）自行维护模型定义
 
 ## MCP 端点
 
@@ -192,6 +184,12 @@ ir.rule → 行级过滤（域解析 → DSL slice → 注入 payload.slice）
 - API 用户面向字符串使用中文
 - 代码注释中英文均可
 - 修改后运行 `bash scripts/upgrade_module.sh` 验证
+- **模型统一使用 TM/QM 定义（阻塞规则）**：
+  - 所有数据模型必须使用标准 TM（Table Model）/ QM（Query Model）文件定义，**禁止使用 Python 代码手写模型**
+  - **内嵌模式**：模型文件由 Odoo 插件准备，存放在 `foggy_mcp/setup/foggy-models/`（`model/*.tm` + `query/*.qm`），由 `EmbeddedBackend` 通过 `load_models_from_directory()` 加载
+  - **网关模式**：模型文件由外部引擎（Java 或 Python）自行维护，Odoo 侧不管模型定义
+  - **单一源原则**：TM/QM 文件是模型的唯一权威源。三个引擎（内嵌 Python、Java 网关、Python 网关）共用同一套 TM/QM 定义，确保字段名、数据类型、JOIN 关系完全一致
+  - 新增/修改模型时，直接编辑 `setup/foggy-models/` 下的 `.tm`/`.qm` 文件即可，无需修改 Python 代码
 - **API 签名一致性原则（阻塞规则）**：内嵌 Python 引擎（`foggy-data-mcp-bridge-python`）与外部 Java 引擎（`foggy-data-mcp-bridge`）的业务方法签名**必须保持一致，以 Java 为标准**。当发现 Python API 参数签名（不管是 Python 内嵌引擎还是 Python 作为独立服务）与 Java 侧不符时：
   1. **立即停止**相关功能的开发工作
   2. 在 `docs/` 下创建签名不一致报告文档（格式参考 `docs/api-signature-mismatch-report-2026-03-21.md`）
@@ -240,7 +238,7 @@ ir.rule → 行级过滤（域解析 → DSL slice → 注入 payload.slice）
    PY_SRC="../foggy-data-mcp-bridge-python/src/foggy"
    VENDOR="foggy_mcp/lib/foggy"
    rm -rf "$VENDOR" && mkdir -p "$VENDOR"
-   cp -r "$PY_SRC"/{__init__.py,core,dataset,dataset_model,mcp_spi,bean_copy} "$VENDOR/"
+   cp -r "$PY_SRC"/{__init__.py,core,dataset,dataset_model,mcp_spi,bean_copy,fsscript} "$VENDOR/"
    find "$VENDOR" -name "__pycache__" -exec rm -rf {} +
    ```
 

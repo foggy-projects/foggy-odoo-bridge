@@ -25,12 +25,13 @@ class ResConfigSettings(models.TransientModel):
     # ── 引擎模式 ──────────────────────────────────────
 
     foggy_engine_mode = fields.Selection([
-        ('embedded', '内嵌模式（Python 引擎，推荐）'),
-        ('gateway', '网关模式（需要外部服务器）'),
+        ('embedded', '内嵌模式（推荐）'),
+        ('gateway', '网关模式'),
     ], string='引擎模式',
         config_parameter='foggy_mcp.engine_mode',
         default='embedded',
-        help='内嵌模式使用 Python 引擎直接在 Odoo 进程内运行，零外部依赖（推荐）；网关模式通过 HTTP 转发到外部 Foggy 服务器。',
+        help='内嵌模式：Python 引擎在 Odoo 进程内运行，零外部依赖。\n'
+             '网关模式：通过 HTTP 转发到外部 Foggy 服务器。',
     )
 
     foggy_embedded_available = fields.Boolean(
@@ -120,9 +121,13 @@ class ResConfigSettings(models.TransientModel):
         help='控制随机性。值越低越精确，值越高越有创造性。（0.0 - 1.0）',
     )
     foggy_llm_custom_prompt = fields.Char(
-        string='业务上下文提示',
+        string='业务上下文 & 自定义规则',
         config_parameter='foggy_mcp.llm_custom_prompt',
-        help='注入 AI 系统提示的自定义业务上下文。',
+        help='注入 AI 系统提示的自定义内容。可添加：\n'
+             '- 业务术语定义（如"大客户 = 年销售额 > 50 万"）\n'
+             '- 额外的回答规则（如"数据展示时隐藏员工手机号"）\n'
+             '- 公司特定上下文（如"财年从 4 月开始"）\n\n'
+             '注意：核心安全规则（禁止编造数据）始终生效，不可覆盖。',
     )
 
     # ── 连接测试 ─────────────────────────────────────

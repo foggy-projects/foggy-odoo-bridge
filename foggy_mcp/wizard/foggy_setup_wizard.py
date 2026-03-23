@@ -163,9 +163,9 @@ class FoggySetupWizard(models.TransientModel):
 
     # 引擎模式（继承自 Settings，向导中也可选择）
     engine_mode = fields.Selection([
-        ('gateway', '网关模式（需要外部服务器）'),
-        ('embedded', '内嵌模式（Python 引擎，无需外部服务器）'),
-    ], string='引擎模式', default='gateway')
+        ('gateway', '网关模式'),
+        ('embedded', '内嵌模式（推荐）'),
+    ], string='引擎模式', default='embedded')
 
     embedded_available = fields.Boolean(
         string='内嵌引擎可用', compute='_compute_embedded_available')
@@ -193,7 +193,7 @@ class FoggySetupWizard(models.TransientModel):
 
     # Connection mode selection
     connection_mode = fields.Selection([
-        ('docker', 'Docker 网络模式（推荐）'),
+        ('docker', 'Docker 网络（推荐）'),
         ('direct_ip', '直接 IP 连接'),
     ], string='连接模式', default='docker', required=True)
 

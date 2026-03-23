@@ -33,8 +33,9 @@
                         </div>
 
                         <!-- 引擎模式选择 -->
-                        <group string="选择引擎模式" col="2">
-                            <field name="engine_mode" widget="radio" nolabel="1"/>
+                        <group string="选择引擎模式">
+                            <field name="engine_mode" widget="radio" nolabel="1"
+                                   colspan="2"/>
                         </group>
 
                         <!-- 网关模式提示 -->
@@ -100,8 +101,9 @@
                         </div>
 
                         <!-- 连接模式选择 -->
-                        <group string="连接模式" col="2">
-                            <field name="connection_mode" widget="radio"/>
+                        <group string="连接模式">
+                            <field name="connection_mode" widget="radio"
+                                   nolabel="1" colspan="2"/>
                         </group>
 
                         <!-- Docker 网络模式设置 -->
@@ -146,10 +148,10 @@
                         <field name="docker_network_detected" invisible="1"/>
                         <field name="docker_socket_available" invisible="1"/>
 
-                        <group>
+                        <div class="mt8 mb8">
                             <button name="action_regenerate_command" string="重新生成命令"
                                     type="object" class="btn-secondary btn-sm"/>
-                        </group>
+                        </div>
 
                         <separator string="在终端中运行以下命令"/>
                         <field name="deploy_command"
@@ -210,10 +212,10 @@
                             </p>
                         </div>
 
-                        <group invisible="not connection_status or '❌' in connection_status">
+                        <div class="mt8 mb8" invisible="not connection_status or '❌' in connection_status">
                             <button name="action_save_connection" string="保存当前配置"
                                     type="object" class="btn-secondary"/>
-                        </group>
+                        </div>
                     </div>
 
                     <!-- 第 4 步：数据源 -->
@@ -248,11 +250,11 @@
                             <field name="db_name" readonly="1" force_save="1" string="数据库名称"/>
                         </group>
 
-                        <group>
+                        <div class="mt16 mb16">
                             <button name="action_configure_datasource"
                                     string="注册数据源"
                                     type="object" class="btn-primary"/>
-                        </group>
+                        </div>
 
                         <group string="注册结果" invisible="not datasource_status">
                             <field name="datasource_status" nolabel="1"
@@ -269,12 +271,12 @@
                             </p>
                         </div>
 
-                        <group>
+                        <div class="mt16 mb16">
                             <button name="action_init_closure_tables"
                                     string="初始化闭包表"
                                     type="object" class="btn-primary"
                                     confirm="将在数据库中创建 4 张闭包表，是否继续？"/>
-                        </group>
+                        </div>
 
                         <group string="执行结果" invisible="not closure_status">
                             <field name="closure_status" nolabel="1"

@@ -11,8 +11,8 @@
                     <block title="引擎模式">
                         <setting string="引擎模式" help="选择查询引擎的运行方式">
                             <div class="content-group">
-                                <div class="row mt16">
-                                    <field name="foggy_engine_mode" widget="radio" class="col-lg-8"/>
+                                <div class="mt16">
+                                    <field name="foggy_engine_mode" widget="radio"/>
                                 </div>
                                 <field name="foggy_embedded_available" invisible="1"/>
                                 <div class="alert alert-info mt8" role="alert"
@@ -150,12 +150,12 @@
                                 </div>
                             </div>
                         </setting>
-                        <setting string="业务上下文"
-                                 help="注入每次 AI 对话的自定义业务知识，在此定义 KPI、术语和规则。">
+                        <setting string="业务上下文 &amp; 自定义规则"
+                                 help="注入每次 AI 对话的自定义指令。可定义业务术语、KPI、回答规则等。核心安全规则（禁止编造数据）始终生效。">
                             <div class="content-group">
-                                <div class="row mt16">
-                                    <field name="foggy_llm_custom_prompt" class="col-lg-9"
-                                           placeholder="示例：&#10;- 大客户 = 年销售额 > 50 万&#10;- 活跃客户 = 最近 90 天有订单&#10;- 财年从 4 月开始&#10;- 研发部包含 QA 和 DevOps 团队"/>
+                                <div class="mt16">
+                                    <field name="foggy_llm_custom_prompt" widget="text"
+                                           placeholder="示例：&#10;&#10;## 业务术语&#10;- 大客户 = 年销售额 > 50 万&#10;- 活跃客户 = 最近 90 天有订单&#10;- 财年从 4 月开始&#10;&#10;## 额外规则&#10;- 展示员工数据时隐藏手机号&#10;- 金额默认使用人民币（¥）&#10;- 研发部包含 QA 和 DevOps 团队"/>
                                 </div>
                             </div>
                         </setting>
