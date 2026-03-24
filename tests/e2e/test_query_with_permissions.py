@@ -246,16 +246,19 @@ class TestDateFiltering:
             f"SQL: {result.get('debug', {}).get('extra', {}).get('sql', 'N/A')}"
         )
 
-    @pytest.mark.xfail(reason="asyncpg date conversion incomplete for property fields")
     def test_createdate_filter(self, authed_session):
-        """createDate (property field) date filter should work."""
+        """createDate (property field) date filter should work.
+
+        Odoo demo data sets hr_employee.create_date to 2010-01-01,
+        so the filter must use a date before that.
+        """
         result = _query_model(
             authed_session,
             'OdooHrEmployeeQueryModel',
             ['name'],
             limit=3,
             slice_conditions=[
-                {'field': 'createDate', 'op': '>=', 'value': '2020-01-01'},
+                {'field': 'createDate', 'op': '>=', 'value': '2009-01-01'},
             ],
         )
         items = result.get('items', [])
