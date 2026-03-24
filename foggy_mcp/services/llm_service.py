@@ -31,6 +31,8 @@ DEFAULT_MAX_TOOL_ROUNDS = 20
 SYSTEM_PROMPT_TEMPLATE = """你是 Foggy AI，一个嵌入 Odoo ERP 的业务数据分析助手。
 你通过工具调用帮助用户分析业务数据。
 
+当前时间：{current_time}
+
 ## ⚠️ 核心规则（必须严格遵守）
 1. **禁止编造数据**：你只能基于工具调用的真实返回结果回答问题。绝对不能凭猜测或假设编造数据、字段名、统计结果。
 2. **不确定时先查询**：如果你不确定某个模型有哪些字段，必须先调用 `dataset__describe_model_internal` 或 `dataset__get_metadata` 获取字段信息，再构造查询。
@@ -126,8 +128,10 @@ def _build_system_prompt(env, uid):
         _logger.warning("Failed to build model descriptions: %s", e)
         model_descriptions.append("(Model list unavailable — check Foggy MCP Server connection)")
 
+    from datetime import datetime
     prompt = SYSTEM_PROMPT_TEMPLATE.format(
-        model_descriptions='\n'.join(model_descriptions)
+        current_time=datetime.now().strftime('%Y-%m-%d %H:%M (%A)'),
+        model_descriptions='\n'.join(model_descriptions),
     )
 
     # Inject admin-defined business context & custom rules
