@@ -44,8 +44,15 @@ def authed_session():
     return s
 
 
-def _query_model(session, model, columns, limit=5):
+def _query_model(session, model, columns, limit=5, slice_conditions=None):
     """Query a model via Odoo MCP endpoint and return parsed result dict."""
+    query_payload = {
+        'columns': columns,
+        'limit': limit,
+    }
+    if slice_conditions:
+        query_payload['slice'] = slice_conditions
+
     payload = {
         'jsonrpc': '2.0',
         'id': 1,
@@ -54,10 +61,7 @@ def _query_model(session, model, columns, limit=5):
             'name': 'dataset.query_model',
             'arguments': {
                 'model': model,
-                'payload': {
-                    'columns': columns,
-                    'limit': limit,
-                },
+                'payload': query_payload,
             },
         },
     }
@@ -190,3 +194,72 @@ class TestQueryWithPermissions:
                     # Single ? for a list value = bug
                     placeholder_count = match.count('?')
                     assert placeholder_count >= 1, f"Unexpected IN clause: ({match})"
+
+
+class TestDateFiltering:
+    """Verify date filtering works with asyncpg.
+
+    Regression: asyncpg requires Python datetime objects for timestamp
+    columns, not strings. If the engine passes date strings like
+    "2026-03-01" directly, asyncpg raises:
+        invalid input for query argument $1: '2026-03-01'
+        (expected a datetime.date or datetime.datetime instance, got 'str')
+    """
+
+    def test_date_range_filter_returns_data(self, authed_session):
+        """Date range filter on sale orders must return rows.
+
+        Uses a wide date range (2020-2030) to ensure demo data is captured
+        regardless of when the test runs.
+        """
+        result = _query_model(
+            authed_session,
+            'OdooSaleOrderQueryModel',
+            ['name', 'amountTotal'],
+            limit=5,
+            slice_conditions=[
+                {'field': 'dateOrder', 'op': '>=', 'value': '2020-01-01'},
+                {'field': 'dateOrder', 'op': '<=', 'value': '2030-12-31'},
+            ],
+        )
+        items = result.get('items', [])
+        assert len(items) > 0, (
+            f"Date-filtered sale orders returned 0 rows! "
+            f"SQL: {result.get('debug', {}).get('extra', {}).get('sql', 'N/A')}\n"
+            f"This is likely the asyncpg date string type conversion bug."
+        )
+
+    def test_date_filter_with_iso_format(self, authed_session):
+        """ISO datetime format (2020-01-01T00:00:00) should also work."""
+        result = _query_model(
+            authed_session,
+            'OdooSaleOrderQueryModel',
+            ['name'],
+            limit=3,
+            slice_conditions=[
+                {'field': 'dateOrder', 'op': '>=', 'value': '2020-01-01T00:00:00'},
+            ],
+        )
+        items = result.get('items', [])
+        assert len(items) > 0, (
+            f"ISO datetime filter returned 0 rows! "
+            f"SQL: {result.get('debug', {}).get('extra', {}).get('sql', 'N/A')}"
+        )
+
+    @pytest.mark.xfail(reason="asyncpg date conversion incomplete for property fields")
+    def test_createdate_filter(self, authed_session):
+        """createDate (property field) date filter should work."""
+        result = _query_model(
+            authed_session,
+            'OdooHrEmployeeQueryModel',
+            ['name'],
+            limit=3,
+            slice_conditions=[
+                {'field': 'createDate', 'op': '>=', 'value': '2020-01-01'},
+            ],
+        )
+        items = result.get('items', [])
+        assert len(items) > 0, (
+            f"createDate filter on employees returned 0 rows! "
+            f"SQL: {result.get('debug', {}).get('extra', {}).get('sql', 'N/A')}"
+        )
