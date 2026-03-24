@@ -1,125 +1,150 @@
-# Foggy Odoo Bridge — 手工测试引导
+# Foggy Odoo Bridge — 测试与体验手册
 
-> 三引擎模式完整测试指南（v1.0 发布前验收）
+> 涵盖安装验证、功能体验、AI Chat 对话、外部客户端接入、三引擎对比、权限验证。
 
 ## 前置条件
 
-| 组件 | 状态确认 |
+| 组件 | 确认方式 |
 |------|---------|
 | Docker Desktop | 运行中 |
 | PostgreSQL (foggy-odoo-postgres) | `docker ps` 确认 healthy |
 | Odoo 17 (foggy-odoo) | http://localhost:8069 可访问 |
-| Java MCP Server (可选) | port 7108，用 `/java-mcp` skill 启动 |
-| Python MCP Server (可选) | port 8066，用 `/python-mcp` skill 启动 |
+| Java MCP Server（可选） | port 7108，三引擎对比时启动 |
+| Python MCP Server（可选） | port 8066，三引擎对比时启动 |
+
+```bash
+# 健康检查
+curl -s http://localhost:8069/foggy-mcp/health | python -m json.tool
+# 确认 status=ok, engine.mode=embedded, tool_count>=3, models 含 9 个模型
+```
+
+**登录信息**：
+
+| 字段 | 值 |
+|------|---|
+| Database | `odoo_demo` |
+| Email | `admin` |
+| Password | `admin` |
 
 ---
 
-## 一、Settings 页面验证
+## 一、Settings 页面
 
-### 1.1 导航路径
+### 1.1 导航
 
-Settings → 顶部 Tab 栏 → **Foggy MCP**
+Settings → 顶部 Tab → **Foggy MCP**
 
 ### 1.2 检查项
 
-| 检查项 | 预期 | 实际 |
-|--------|------|------|
-| 顶部 Tab 栏只有一个 "Foggy MCP" | 无重复菜单 | □ |
-| 引擎模式区域 | 两个 radio：内嵌模式（推荐，默认选中）/ 网关模式 | □ |
-| 选中内嵌时 | 显示提示 "内嵌模式：查询引擎在 Odoo 进程内运行" | □ |
-| 选中网关时 | 出现服务器 URL / Namespace / 超时配置 | □ |
-| 快速设置 | "启动设置向导" 按钮 | □ |
-| AI 对话（LLM 配置） | 提供商下拉 / API 密钥 / 模型名称 / API 基础地址 / 温度 / 业务上下文 | □ |
-
-### 1.3 LLM 提供商选项
-
-- [ ] OpenAI
-- [ ] Anthropic (Claude)
-- [ ] DeepSeek
-- [ ] Ollama（本地）
-- [ ] 自定义（OpenAI 兼容）
+| 检查项 | 预期 | ✓ |
+|--------|------|---|
+| Tab 栏只有一个 "Foggy MCP" | 无重复菜单 | □ |
+| 引擎模式 | 两个 radio：内嵌模式（推荐，默认选中）/ 网关模式，标签不换行 | □ |
+| 选中内嵌 | 提示"查询引擎在 Odoo 进程内运行" | □ |
+| 选中网关 | 出现服务器 URL / Namespace / 超时配置 | □ |
+| 快速设置 | "启动设置向导"按钮可点击 | □ |
+| AI 对话 | 提供商下拉 / API 密钥 / 模型名称 / 基础地址 / 温度 | □ |
+| 业务上下文 | 多行文本框，placeholder 含示例 | □ |
+| LLM 提供商选项 | OpenAI / Anthropic / DeepSeek / Ollama / 自定义 | □ |
 
 ---
 
-## 二、Setup Wizard（设置向导）验证
-
-### 2.1 内嵌模式向导
+## 二、Setup Wizard（设置向导）
 
 Settings → Foggy MCP → 启动设置向导
 
-| 步骤 | 预期 | 实际 |
-|------|------|------|
-| 步骤 1：欢迎 | 显示引擎模式选择，内嵌默认选中 | □ |
-| 步骤 2：闭包表 | 显示闭包表初始化选项 | □ |
-| 步骤 3：完成 | 显示健康检查结果 | □ |
-| 总步骤数 | 3 步（欢迎→闭包表→完成） | □ |
+### 2.1 内嵌模式向导
+
+| 步骤 | 预期 | ✓ |
+|------|------|---|
+| 欢迎 | 引擎模式 radio，内嵌默认选中，标签不换行 | □ |
+| 闭包表 | "初始化闭包表"按钮不换行，可点击 | □ |
+| 完成 | 显示完成信息 | □ |
+| 总步骤数 | 3 步 | □ |
 
 ### 2.2 网关模式向导
 
-在步骤 1 切换为网关模式后：
+在欢迎步骤切换为网关模式后：
 
-| 步骤 | 预期 | 实际 |
-|------|------|------|
+| 步骤 | 预期 | ✓ |
+|------|------|---|
 | 总步骤数 | 6 步（欢迎→部署→连接→数据源→闭包表→完成） | □ |
-| 部署步骤 | Docker Compose 配置说明 | □ |
-| 连接步骤 | 服务器 URL 测试 | □ |
-| 数据源步骤 | PostgreSQL 数据源配置 | □ |
+| 部署 | Docker 命令生成，按钮不换行 | □ |
+| 连接 | 服务器 URL 测试 | □ |
+| 数据源 | PostgreSQL 配置预览 | □ |
 
 ---
 
-## 三、API 密钥管理验证
+## 三、API 密钥管理
 
-### 3.1 导航路径
+### 3.1 导航
 
-Settings → Foggy MCP 菜单 → **MCP API 密钥**
+Settings → Foggy MCP → **MCP API 密钥**
 
 ### 3.2 检查项
 
-| 检查项 | 预期 | 实际 |
-|--------|------|------|
-| 列表页标题 | "我的 API 密钥" | □ |
-| 表头 | 名称 / 用户 / 密钥预览 / 启用 / 最后使用 / Created on | □ |
+| 检查项 | 预期 | ✓ |
+|--------|------|---|
+| 列表页 | 名称 / 用户 / 密钥预览 / 启用 / 最后使用 / 创建时间 | □ |
 | 自动生成的密钥 | 有一条 `fmcp_` 开头的密钥 | □ |
+| 点击进入详情 | 可复制 Key，看到 MCP 配置说明 | □ |
 | "New" 按钮 | 可创建新密钥 | □ |
 
-### 3.3 API 密钥功能测试
+### 3.3 API 密钥认证测试
 
 ```bash
-# 获取密钥后测试 MCP 端点
 curl -X POST http://localhost:8069/foggy-mcp/rpc \
   -H 'Content-Type: application/json' \
   -H 'Authorization: Bearer fmcp_YOUR_KEY' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"dataset.get_metadata","arguments":{}}}'
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
 ```
 
 ---
 
-## 四、AI Chat 对话验证
+## 四、Foggy AI 对话
 
-### 4.1 导航路径
+### 4.1 导航
 
-Settings → Foggy MCP 菜单 → **Foggy AI 对话**
+主导航栏 → **Foggy AI** → AI 对话
+（也可通过 Settings → Foggy MCP → Foggy AI 对话 进入）
 
 ### 4.2 界面检查
 
-| 检查项 | 预期 | 实际 |
-|--------|------|------|
+| 检查项 | 预期 | ✓ |
+|--------|------|---|
 | 左侧面板 | 历史对话列表 + "New Chat" 按钮 | □ |
-| 右侧欢迎区 | "Foggy AI Data Analyst" 标题 + 预设问题按钮 | □ |
-| 预设问题 | Top customers / Monthly sales / CRM pipeline | □ |
+| 欢迎区 | "Foggy AI Data Analyst" 标题 + 预设问题按钮 | □ |
 | 输入框 | placeholder "询问你的业务数据..." | □ |
-| 快捷键提示 | "Press Enter to send, Shift+Enter for new line" | □ |
 
-### 4.3 对话功能测试（需要 LLM 配置正确）
+### 4.3 LLM 配置（各提供商）
 
-依次测试以下问题，确认 AI 能调用 MCP 工具查询数据：
+| 提供商 | Provider | Model | 其他 |
+|--------|----------|-------|------|
+| OpenAI | `OpenAI` | `gpt-4o-mini` 或 `gpt-4o` | |
+| DeepSeek | `DeepSeek` | `deepseek-chat` | |
+| Ollama | `Ollama（本地）` | `llama3` / `qwen2.5` | Base URL: `http://host.docker.internal:11434/v1` |
+| 自定义 | `自定义（OpenAI 兼容）` | 按提供商填 | 填写 Base URL |
 
-| 问题 | 预期行为 | 实际 |
-|------|---------|------|
-| "公司有几家？" | 调用 dataset.query_model → OdooResCompanyQueryModel → 返回 2 | □ |
-| "各部门分别有多少员工？" | 调用 query_model → OdooHrEmployeeQueryModel → 7 个部门 | □ |
-| "列出所有在职员工，包含姓名和部门" | 调用 query_model → 返回 20 名员工 | □ |
-| "本月销售订单总金额是多少？" | 调用 query_model → OdooSaleOrderQueryModel → amountTotal | □ |
+### 4.4 对话测试
+
+| 问题 | 预期 | ✓ |
+|------|------|---|
+| "公司有几家？" | 返回 2 家公司 | □ |
+| "各部门分别有多少员工？" | 按部门分组 → 7 个部门 | □ |
+| "列出所有在职员工，包含姓名和部门" | 约 20 人 | □ |
+| "本月销售订单总金额是多少？" | 按日期过滤（AI 知道当前日期） | □ |
+| "最近5笔销售订单？显示订单号、客户、金额" | 表格，客户名称正确 | □ |
+| "哪个客户的销售总额最高？" | 按 partner 分组 SUM 排序 | □ |
+| "当前各阶段有多少商机？预期收入？" | 按 stage 分组统计 CRM | □ |
+| "其中研发部门有多少人？" | 使用 like 或 selfAndDescendantsOf | □ |
+
+### 4.5 非管理员用户
+
+| 检查项 | 预期 | ✓ |
+|--------|------|---|
+| 无 Settings 菜单 | 但可通过 Foggy AI 菜单进入对话 | □ |
+| My API Key | 可管理自己的密钥 | □ |
+| AI Chat 数据 | 受 ir.rule 权限控制 | □ |
 
 ---
 
@@ -131,68 +156,106 @@ Settings → Foggy MCP 菜单 → **Foggy AI 对话**
 curl http://localhost:8069/foggy-mcp/health | python -m json.tool
 ```
 
-预期返回：
+预期：`status: "ok"`, `engine.mode: "embedded"`, `tool_count >= 3`, `models: 9 个`
+
+### 5.2 直接查询
+
+```bash
+curl -X POST http://localhost:8069/foggy-mcp/rpc \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer fmcp_YOUR_KEY' \
+  -d '{
+    "jsonrpc": "2.0", "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "dataset.query_model",
+      "arguments": {
+        "model": "OdooSaleOrderQueryModel",
+        "payload": {
+          "columns": ["name", "partner$caption", "amountTotal"],
+          "limit": 5
+        }
+      }
+    }
+  }' | python -m json.tool
+```
+
+---
+
+## 六、外部 AI 客户端配置
+
+### 6.1 Claude Desktop
+
+编辑 `claude_desktop_config.json`：
+
 ```json
 {
-  "status": "ok",
-  "checks": {
-    "engine": {"status": "ok", "mode": "embedded"},
-    "tool_cache": {"status": "ok", "tool_count": 6}
+  "mcpServers": {
+    "odoo": {
+      "url": "http://localhost:8069/foggy-mcp/rpc",
+      "headers": {
+        "Authorization": "Bearer fmcp_YOUR_KEY"
+      }
+    }
   }
 }
 ```
 
-### 5.2 工具列表
+### 6.2 Cursor / VS Code
 
-```bash
-# 使用 Session Cookie（登录后）或 API Key
-curl -X POST http://localhost:8069/foggy-mcp/rpc \
-  -H 'Content-Type: application/json' \
-  -H 'Authorization: Bearer fmcp_YOUR_KEY' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
+`.cursor/mcp.json`：
+
+```json
+{
+  "mcpServers": {
+    "odoo": {
+      "url": "http://localhost:8069/foggy-mcp/rpc",
+      "headers": {
+        "Authorization": "Bearer <your-api-key>"
+      }
+    }
+  }
+}
 ```
 
-预期工具：`dataset.query_model`, `dataset.get_metadata`, `dataset.describe_model_internal` 等
+### 6.3 Cherry Studio
+
+MCP Server → 添加：类型 `Streamable HTTP`，URL `http://localhost:8069/foggy-mcp/rpc`，Header `Authorization: Bearer <key>`
 
 ---
 
-## 六、三引擎对比测试
+## 七、三引擎对比测试
 
 > 所有测试通过 Odoo MCP 端点 `/foggy-mcp/rpc`，确保权限注入一致。
 
-### 6.1 自动化测试
+### 7.1 自动化测试
 
 ```bash
-# 确保三个服务都运行
-python tests/e2e/run_comparison_via_odoo.py
+python -m pytest tests/e2e/test_query_with_permissions.py tests/e2e/test_metadata_response.py -v
+# 预期：20/20 通过
 ```
 
-预期：15/15 全部通过，所有行数完全一致（`All rows match: True`）。
-
-### 6.2 手动引擎切换测试
+### 7.2 手动引擎切换
 
 #### 内嵌模式（默认）
 
-1. Settings → Foggy MCP → 引擎模式 = 内嵌模式 → Save
-2. 健康检查：`curl http://localhost:8069/foggy-mcp/health` → `mode: embedded`
-3. AI Chat 提问 "公司有几家？" → 返回 2
+1. Settings → 引擎模式 = 内嵌模式 → Save
+2. 健康检查确认 `mode: embedded`
+3. AI Chat 提问 → 返回数据
 
 #### Java 网关模式
 
 1. 启动 Java MCP Server（port 7108）
-2. Settings → 引擎模式 = 网关模式
-3. 服务器 URL = `http://host.docker.internal:7108`
-4. **Namespace = `odoo`**（Java 引擎必须传 namespace，通过 `X-NS` header）
-5. Save → 健康检查 → `mode: gateway`
-6. AI Chat 提问同样问题 → 结果应与内嵌一致
+2. Settings → 网关模式 → URL = `http://host.docker.internal:7108`
+3. **Namespace = `odoo`**（Java 必须，通过 X-NS header）
+4. Save → 健康检查 `mode: gateway` → AI Chat 结果一致
 
 #### Python 网关模式
 
 1. 启动 Python MCP Server（port 8066）
-2. Settings → 服务器 URL = `http://host.docker.internal:8066`
-3. **Namespace = 留空**（Python 引擎不需要 namespace）
-4. Save → 健康检查 → `mode: gateway`
-5. AI Chat 提问同样问题 → 结果应与内嵌一致
+2. Settings → URL = `http://host.docker.internal:8066`
+3. **Namespace = 留空**（Python 不需要）
+4. Save → 健康检查 `mode: gateway` → AI Chat 结果一致
 
 #### 测试完成后
 
@@ -200,45 +263,76 @@ python tests/e2e/run_comparison_via_odoo.py
 
 ---
 
-## 七、权限验证
+## 八、权限验证
 
-### 7.1 非管理员用户
+### 8.1 权限模型
 
-1. 创建一个普通用户（仅 Sales / Employee 权限）
-2. 用该用户登录
-3. 调用 MCP 端点 → 工具列表应仅包含该用户有权限的模型
-4. 查询应自动注入 ir.rule 权限过滤（行级安全）
-
-### 7.2 API 密钥认证
-
-```bash
-# 用 fmcp_ 密钥直接调用（无需 Session Cookie）
-curl -X POST http://localhost:8069/foggy-mcp/rpc \
-  -H 'Content-Type: application/json' \
-  -H 'Authorization: Bearer fmcp_YOUR_KEY' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
+```
+Admin 用户
+  ├─ ir.model.access: 可读全部 9 个模型
+  ├─ ir.rule (global): company_id in user.company_ids
+  └─ ir.rule (group): 按用户组过滤（OR 语义）
 ```
 
+Gateway 自动将 ir.rule 解析为 DSL slice 注入查询，AI 客户端**无法绕过**。
+
+### 8.2 验证要点
+
+| 检查项 | 预期 | ✓ |
+|--------|------|---|
+| admin 用户查询 | 看到所有公司数据 | □ |
+| 受限用户查询 | 自动注入 company_id 过滤 | □ |
+| 无模型读权限用户 | tools/list 不含该模型工具 | □ |
+| API Key 认证 | `fmcp_` 密钥可替代 Session Cookie | □ |
+
 ---
 
-## 八、已知问题
+## 九、Demo 数据参考
 
-| 问题 | 状态 | 备注 |
-|------|------|------|
-| Setup Wizard 显示 "foggy-python 未安装" | 正常 | vendored 版本可用，pip 安装仅影响提示 |
-| T01/T16 res_partner 返回 0 行 | 正常 | admin 的 ir.rule 多公司权限过滤结果 |
-| "Created on" 列头未翻译 | 小问题 | Odoo 原生字段，非插件控制 |
+| 模型 | 记录数 | 说明 |
+|------|--------|------|
+| sale.order | 24 | 草稿+已确认 |
+| sale.order.line | ~50+ | 多行明细 |
+| purchase.order | 11 | |
+| account.move | 24 | 发票和账单 |
+| stock.picking | 25 | |
+| hr.employee | 20 | create_date 为 2010-01-01（Demo 假日期） |
+| res.partner | 61 | 客户、供应商、联系人 |
+| crm.lead | 44 | 4 个阶段 |
+| res.company | 2 | 均无父公司 |
 
 ---
 
-## 九、验收 Checklist
+## 十、验收 Checklist
 
-- [ ] Settings → Foggy MCP Tab 布局正确，无重复菜单
-- [ ] 引擎模式切换正常（内嵌/网关）
-- [ ] Setup Wizard 内嵌 3 步 / 网关 6 步流程完整
-- [ ] API 密钥创建、列表、认证正常
-- [ ] AI Chat 界面完整，对话可用
-- [ ] MCP 健康检查返回 ok
-- [ ] 三引擎对比 15/15 通过，行数一致
-- [ ] 权限过滤正常（ir.rule → slice）
+**Settings & Wizard**：
+- [ ] Foggy MCP Tab 布局正确，radio/按钮不换行
+- [ ] 引擎模式切换正常
+- [ ] 向导流程完整（内嵌 3 步 / 网关 6 步）
+
+**API 密钥**：
+- [ ] 创建、列表、认证正常
+
+**AI Chat**：
+- [ ] 界面完整，LLM 配置正确
+- [ ] 基础查询返回数据
+- [ ] 聚合分析正确
+- [ ] 日期过滤正确（本月销售额）
+- [ ] CRM 商机查询正确
+- [ ] 多轮对话上下文连续
+
+**MCP 端点**：
+- [ ] 健康检查 ok
+- [ ] 工具列表正确
+- [ ] curl 直接查询有数据
+
+**三引擎对比**：
+- [ ] 内嵌/Java/Python 结果一致
+- [ ] 回归测试 20/20 通过
+
+**权限**：
+- [ ] ir.rule 自动注入
+- [ ] 非管理员用户数据受限
+
+**最后**：
 - [ ] 引擎切回内嵌模式
