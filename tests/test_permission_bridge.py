@@ -180,11 +180,11 @@ class TestLeafToCondition:
 
     def test_in_operator(self):
         result = _leaf_to_condition(('company_id', 'in', [1, 3]))
-        assert result == {'field': 'company$id', 'op': 'in', 'value': [1, 3]}
+        assert result == {'field': 'company$id', 'op': 'in', 'values': [1, 3]}
 
     def test_not_in_operator(self):
         result = _leaf_to_condition(('state', 'not in', ['cancel', 'draft']))
-        assert result == {'field': 'state', 'op': 'not in', 'value': ['cancel', 'draft']}
+        assert result == {'field': 'state', 'op': 'not in', 'values': ['cancel', 'draft']}
 
     def test_null_check_eq_false(self):
         """('field', '=', False) -> is null"""
@@ -204,7 +204,7 @@ class TestLeafToCondition:
     def test_field_mapping(self):
         """'company_ids' maps to 'company$id' in QM"""
         result = _leaf_to_condition(('company_ids', 'in', [1, 2]))
-        assert result == {'field': 'company$id', 'op': 'in', 'value': [1, 2]}
+        assert result == {'field': 'company$id', 'op': 'in', 'values': [1, 2]}
 
     def test_user_id_maps_to_salesperson(self):
         """'user_id' maps to 'salesperson$id' in QM"""
@@ -214,7 +214,7 @@ class TestLeafToCondition:
     def test_team_id_maps_to_salesTeam(self):
         """'team_id' maps to 'salesTeam$id' in QM"""
         result = _leaf_to_condition(('team_id', 'in', [5, 8]))
-        assert result == {'field': 'salesTeam$id', 'op': 'in', 'value': [5, 8]}
+        assert result == {'field': 'salesTeam$id', 'op': 'in', 'values': [5, 8]}
 
     def test_negate_eq(self):
         result = _leaf_to_condition(('state', '=', 'done'), negate=True)
@@ -222,7 +222,7 @@ class TestLeafToCondition:
 
     def test_negate_in(self):
         result = _leaf_to_condition(('company_id', 'in', [1, 2]), negate=True)
-        assert result == {'field': 'company$id', 'op': 'not in', 'value': [1, 2]}
+        assert result == {'field': 'company$id', 'op': 'not in', 'values': [1, 2]}
 
     def test_negate_is_null(self):
         """NOT (field = False) -> is not null"""
@@ -259,7 +259,7 @@ class TestLeafToCondition:
     def test_tuple_value_to_list(self):
         """Tuple values should be converted to list."""
         result = _leaf_to_condition(('company_id', 'in', (1, 2, 3)))
-        assert result == {'field': 'company$id', 'op': 'in', 'value': [1, 2, 3]}
+        assert result == {'field': 'company$id', 'op': 'in', 'values': [1, 2, 3]}
 
     def test_null_no_value_key(self):
         """Null-check conditions should not have a 'value' key."""
@@ -302,7 +302,7 @@ class TestFlattenToDslSlices:
                 ('LEAF', ('user_id', '=', 42)))
         slices = _flatten_to_dsl_slices(tree)
         assert len(slices) == 2
-        assert slices[0] == {'field': 'company$id', 'op': 'in', 'value': [1, 3]}
+        assert slices[0] == {'field': 'company$id', 'op': 'in', 'values': [1, 3]}
         assert slices[1] == {'field': 'salesperson$id', 'op': '=', 'value': 42}
 
     def test_or_becomes_dsl_or(self):
@@ -330,7 +330,7 @@ class TestFlattenToDslSlices:
                     ('LEAF', ('user_id', '=', False))))
         slices = _flatten_to_dsl_slices(tree)
         assert len(slices) == 2
-        assert slices[0] == {'field': 'company$id', 'op': 'in', 'value': [1, 3]}
+        assert slices[0] == {'field': 'company$id', 'op': 'in', 'values': [1, 3]}
         assert '$or' in slices[1]
         assert len(slices[1]['$or']) == 2
 
@@ -447,7 +447,7 @@ class TestDomainEndToEnd:
         """Standard Odoo multi-company rule: [('company_id', 'in', company_ids)]"""
         domain = [('company_id', 'in', [1, 3])]
         slices = self._domain_to_slices(domain)
-        assert slices == [{'field': 'company$id', 'op': 'in', 'value': [1, 3]}]
+        assert slices == [{'field': 'company$id', 'op': 'in', 'values': [1, 3]}]
 
     def test_odoo_own_records(self):
         """Standard Odoo 'own records' rule: [('user_id', '=', user.id)]"""
@@ -488,7 +488,7 @@ class TestDomainEndToEnd:
                   '|', ('user_id', '=', 42), ('user_id', '=', False)]
         slices = self._domain_to_slices(domain)
         assert len(slices) == 2
-        assert slices[0] == {'field': 'company$id', 'op': 'in', 'value': [1, 3]}
+        assert slices[0] == {'field': 'company$id', 'op': 'in', 'values': [1, 3]}
         assert '$or' in slices[1]
         assert len(slices[1]['$or']) == 2
 
@@ -496,7 +496,7 @@ class TestDomainEndToEnd:
         """Team-based access: [('team_id', 'in', user.sale_team_ids.ids)]"""
         domain = [('team_id', 'in', [5, 8, 12])]
         slices = self._domain_to_slices(domain)
-        assert slices == [{'field': 'salesTeam$id', 'op': 'in', 'value': [5, 8, 12]}]
+        assert slices == [{'field': 'salesTeam$id', 'op': 'in', 'values': [5, 8, 12]}]
 
     def test_odoo_not_cancelled(self):
         """Exclude cancelled: ['!', ('state', '=', 'cancel')]"""
@@ -592,7 +592,7 @@ class TestDomainEndToEnd:
         # Original filter preserved
         assert payload['slice'][0] == {'field': 'order_date', 'op': '>=', 'value': '2024-01-01'}
         # Permission conditions appended
-        assert payload['slice'][1] == {'field': 'company$id', 'op': 'in', 'value': [1, 3]}
+        assert payload['slice'][1] == {'field': 'company$id', 'op': 'in', 'values': [1, 3]}
         assert '$or' in payload['slice'][2]
 
     def test_hierarchy_child_of_end_to_end(self):
@@ -797,14 +797,14 @@ class TestFalseInValueLists:
         assert '$or' in result
         or_children = result['$or']
         assert len(or_children) == 2
-        assert or_children[0] == {'field': 'company$id', 'op': 'in', 'value': [1, 2]}
+        assert or_children[0] == {'field': 'company$id', 'op': 'in', 'values': [1, 2]}
         assert or_children[1] == {'field': 'company$id', 'op': 'is null'}
 
     def test_in_with_none_produces_or(self):
         """None in value list is treated same as False."""
         result = _leaf_to_condition(('company_id', 'in', [1, None]))
         assert '$or' in result
-        assert result['$or'][0] == {'field': 'company$id', 'op': 'in', 'value': [1]}
+        assert result['$or'][0] == {'field': 'company$id', 'op': 'in', 'values': [1]}
         assert result['$or'][1] == {'field': 'company$id', 'op': 'is null'}
 
     def test_in_with_only_false(self):
@@ -818,19 +818,19 @@ class TestFalseInValueLists:
         assert '$and' in result
         and_children = result['$and']
         assert len(and_children) == 2
-        assert and_children[0] == {'field': 'company$id', 'op': 'not in', 'value': [1]}
+        assert and_children[0] == {'field': 'company$id', 'op': 'not in', 'values': [1]}
         assert and_children[1] == {'field': 'company$id', 'op': 'is not null'}
 
     def test_in_without_false_unchanged(self):
         """Normal IN list (no False) is unchanged."""
         result = _leaf_to_condition(('company_id', 'in', [1, 2]))
-        assert result == {'field': 'company$id', 'op': 'in', 'value': [1, 2]}
+        assert result == {'field': 'company$id', 'op': 'in', 'values': [1, 2]}
 
     def test_in_with_false_single_value(self):
         """('company_id', 'in', [3, False]) → $or with single-element list."""
         result = _leaf_to_condition(('company_id', 'in', [3, False]))
         assert '$or' in result
-        assert result['$or'][0] == {'field': 'company$id', 'op': 'in', 'value': [3]}
+        assert result['$or'][0] == {'field': 'company$id', 'op': 'in', 'values': [3]}
         assert result['$or'][1] == {'field': 'company$id', 'op': 'is null'}
 
 
@@ -852,12 +852,12 @@ class TestPurchaseOrderDomains:
     def test_company_isolation(self):
         """Global rule: [('company_id', 'in', [1])]."""
         slices = self._domain_to_slices([('company_id', 'in', [1])])
-        assert slices == [{'field': 'company$id', 'op': 'in', 'value': [1]}]
+        assert slices == [{'field': 'company$id', 'op': 'in', 'values': [1]}]
 
     def test_multi_company(self):
         """User in multiple companies: [('company_id', 'in', [1, 2])]."""
         slices = self._domain_to_slices([('company_id', 'in', [1, 2])])
-        assert slices == [{'field': 'company$id', 'op': 'in', 'value': [1, 2]}]
+        assert slices == [{'field': 'company$id', 'op': 'in', 'values': [1, 2]}]
 
 
 class TestAccountMoveDomains:
@@ -880,7 +880,7 @@ class TestAccountMoveDomains:
     def test_company_isolation(self):
         """Global rule: company_id IN company_ids."""
         slices = self._domain_to_slices([('company_id', 'in', [1, 2])])
-        assert slices == [{'field': 'company$id', 'op': 'in', 'value': [1, 2]}]
+        assert slices == [{'field': 'company$id', 'op': 'in', 'values': [1, 2]}]
 
     def test_billing_tautology(self):
         """Billing group rule: [(1, '=', 1)] → empty (allow all)."""
@@ -892,7 +892,7 @@ class TestAccountMoveDomains:
         domain = [('move_type', 'in', ('out_invoice', 'out_refund'))]
         slices = self._domain_to_slices(domain)
         assert slices == [{'field': 'moveType', 'op': 'in',
-                           'value': ['out_invoice', 'out_refund']}]
+                           'values': ['out_invoice', 'out_refund']}]
 
     def test_personal_invoices(self):
         """Own Documents group: move_type filter AND (own OR unassigned).
@@ -907,7 +907,7 @@ class TestAccountMoveDomains:
         assert len(slices) == 2
         # First: move_type filter
         assert slices[0] == {'field': 'moveType', 'op': 'in',
-                             'value': ['out_invoice', 'out_refund']}
+                             'values': ['out_invoice', 'out_refund']}
         # Second: user OR null
         assert '$or' in slices[1]
         or_children = slices[1]['$or']
@@ -920,7 +920,7 @@ class TestAccountMoveDomains:
         domain = [('move_type', 'in', ('in_invoice', 'in_refund', 'in_receipt'))]
         slices = self._domain_to_slices(domain)
         assert slices == [{'field': 'moveType', 'op': 'in',
-                           'value': ['in_invoice', 'in_refund', 'in_receipt']}]
+                           'values': ['in_invoice', 'in_refund', 'in_receipt']}]
 
 
 class TestStockPickingDomains:
@@ -937,12 +937,12 @@ class TestStockPickingDomains:
     def test_company_isolation(self):
         """Global rule: company_id IN company_ids."""
         slices = self._domain_to_slices([('company_id', 'in', [1])])
-        assert slices == [{'field': 'company$id', 'op': 'in', 'value': [1]}]
+        assert slices == [{'field': 'company$id', 'op': 'in', 'values': [1]}]
 
     def test_multi_company(self):
         """Multi-company user sees pickings from all companies."""
         slices = self._domain_to_slices([('company_id', 'in', [1, 2])])
-        assert slices == [{'field': 'company$id', 'op': 'in', 'value': [1, 2]}]
+        assert slices == [{'field': 'company$id', 'op': 'in', 'values': [1, 2]}]
 
 
 class TestHrEmployeeDomains:
@@ -969,7 +969,7 @@ class TestHrEmployeeDomains:
         assert '$or' in slices[0]
         or_children = slices[0]['$or']
         assert len(or_children) == 2
-        assert or_children[0] == {'field': 'company$id', 'op': 'in', 'value': [1]}
+        assert or_children[0] == {'field': 'company$id', 'op': 'in', 'values': [1]}
         assert or_children[1] == {'field': 'company$id', 'op': 'is null'}
 
     def test_multi_company_with_false(self):
@@ -980,7 +980,7 @@ class TestHrEmployeeDomains:
         assert len(slices) == 1
         assert '$or' in slices[0]
         or_children = slices[0]['$or']
-        assert or_children[0] == {'field': 'company$id', 'op': 'in', 'value': [1, 2]}
+        assert or_children[0] == {'field': 'company$id', 'op': 'in', 'values': [1, 2]}
         assert or_children[1] == {'field': 'company$id', 'op': 'is null'}
 
 
@@ -1094,13 +1094,13 @@ class TestCrossModelFieldMapping:
         """account.move: move_type → moveType."""
         result = _leaf_to_condition(('move_type', 'in', ('out_invoice', 'out_refund')))
         assert result == {'field': 'moveType', 'op': 'in',
-                          'value': ['out_invoice', 'out_refund']}
+                          'values': ['out_invoice', 'out_refund']}
 
     def test_state_passes_through(self):
         """state → state (same name, explicit mapping)."""
         result = _leaf_to_condition(('state', 'not in', ('cancel', 'draft')))
         assert result == {'field': 'state', 'op': 'not in',
-                          'value': ['cancel', 'draft']}
+                          'values': ['cancel', 'draft']}
 
     def test_journal_id_maps_to_journal(self):
         """account.move: journal_id → journal$id."""
@@ -1285,7 +1285,7 @@ class TestDynamicColumnMap:
         slices = _flatten_to_dsl_slices(tree, ctx=ctx)
         assert slices == [
             {'field': 'user$id', 'op': '=', 'value': 5},
-            {'field': 'company$id', 'op': 'in', 'value': [1, 2]},
+            {'field': 'company$id', 'op': 'in', 'values': [1, 2]},
         ]
 
     def test_column_map_in_or_branch(self):

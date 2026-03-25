@@ -797,7 +797,7 @@ def _leaf_to_condition(leaf, negate=False, ctx=None):
                     null_op = NEGATE_OP_MAP.get(null_op, null_op)
                 return {'field': qm_field, 'op': null_op}
 
-            in_cond = {'field': qm_field, 'op': dsl_op, 'value': clean_values}
+            in_cond = {'field': qm_field, 'op': dsl_op, 'values': clean_values}
             null_cond = {'field': qm_field,
                          'op': 'is null' if dsl_op == 'in' else 'is not null'}
 
