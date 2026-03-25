@@ -9,7 +9,8 @@
             <xpath expr="//form" position="inside">
                 <app string="Foggy MCP" name="foggy_mcp" groups="base.group_system">
                     <block title="引擎模式">
-                        <setting string="引擎模式" help="选择查询引擎的运行方式">
+                        <setting string="引擎模式"
+                                 help="内嵌模式：Python 引擎在 Odoo 进程内运行，零外部依赖（推荐）。网关模式：通过 HTTP 转发到外部 Foggy 服务器，适合需要独立部署引擎的场景。">
                             <div class="content-group">
                                 <div class="mt16">
                                     <field name="foggy_engine_mode" widget="radio"/>
@@ -29,12 +30,13 @@
                     </block>
                     <block title="快速设置">
                         <setting string="设置向导"
-                                 help="逐步引导部署 Foggy MCP 服务器、初始化闭包表并验证连接">
+                                 help="逐步引导初始化闭包表并验证连接。点击按钮前请先保存当前设置。">
                             <div class="content-group">
                                 <div class="mt16">
                                     <button name="%(foggy_setup_wizard_action)d"
                                             string="启动设置向导"
                                             type="action" class="btn-primary"/>
+                                    <span class="text-muted ms-2">点击将自动保存当前设置</span>
                                 </div>
                             </div>
                         </setting>

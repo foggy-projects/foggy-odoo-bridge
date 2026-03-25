@@ -133,13 +133,17 @@
                         </div>
 
                         <!-- 数据库配置（从 Odoo 自动读取，只读） -->
-                        <group string="▼ 从 Odoo 配置自动读取（只读）" col="6">
-                            <field name="db_host" readonly="1" force_save="1"/>
-                            <field name="db_port" readonly="1" force_save="1"/>
-                            <field name="db_user" readonly="1" force_save="1"/>
-                            <field name="db_password" password="True" readonly="1" force_save="1"/>
-                            <field name="db_name" readonly="1" force_save="1"/>
-                            <field name="foggy_port"/>
+                        <group string="▼ 从 Odoo 配置自动读取（只读）">
+                            <group>
+                                <field name="db_host" readonly="1" force_save="1"/>
+                                <field name="db_port" readonly="1" force_save="1"/>
+                                <field name="db_user" readonly="1" force_save="1"/>
+                            </group>
+                            <group>
+                                <field name="db_password" password="True" readonly="1" force_save="1"/>
+                                <field name="db_name" readonly="1" force_save="1"/>
+                                <field name="foggy_port"/>
+                            </group>
                         </group>
 
                         <!-- 隐藏字段 -->
@@ -243,11 +247,15 @@
                         </div>
 
                         <!-- 数据源配置预览 -->
-                        <group string="数据源配置预览" col="4">
-                            <field name="db_host" readonly="1" force_save="1" string="数据库主机"/>
-                            <field name="db_port" readonly="1" force_save="1" string="数据库端口"/>
-                            <field name="db_user" readonly="1" force_save="1" string="数据库用户"/>
-                            <field name="db_name" readonly="1" force_save="1" string="数据库名称"/>
+                        <group string="数据源配置预览">
+                            <group>
+                                <field name="db_host" readonly="1" force_save="1" string="数据库主机"/>
+                                <field name="db_port" readonly="1" force_save="1" string="数据库端口"/>
+                            </group>
+                            <group>
+                                <field name="db_user" readonly="1" force_save="1" string="数据库用户"/>
+                                <field name="db_name" readonly="1" force_save="1" string="数据库名称"/>
+                            </group>
                         </group>
 
                         <div class="mt16 mb16">
