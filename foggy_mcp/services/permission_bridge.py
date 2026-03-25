@@ -103,6 +103,7 @@ DIRECT_FIELD_MAP = {
     'picking_type_id': 'pickingType$id',
     'move_type': 'moveType',             # account.move property
     'state': 'state',                    # common property (explicit mapping)
+    'partner_share': 'partnerShare',     # res.partner: shared with portal (ir.rule filter)
 }
 
 # Odoo ir.rule field → Foggy dimension field (for hierarchy operators).

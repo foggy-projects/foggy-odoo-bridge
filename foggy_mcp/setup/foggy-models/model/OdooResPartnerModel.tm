@@ -100,6 +100,7 @@ export const model = {
         { column: 'ref', caption: 'Internal Reference', type: 'STRING' },
         { column: 'lang', caption: 'Language', type: 'STRING' },
         { column: 'is_company', caption: 'Is Company', type: 'BOOL' },
+        { column: 'partner_share', caption: 'Is Shared (External)', type: 'BOOL', description: 'True if partner is shared with portal users (used by ir.rule)' },
         { column: 'active', caption: 'Active', type: 'BOOL' },
         { column: 'customer_rank', caption: 'Customer Rank', type: 'INTEGER', description: '> 0 means customer' },
         { column: 'supplier_rank', caption: 'Supplier Rank', type: 'INTEGER', description: '> 0 means vendor' },

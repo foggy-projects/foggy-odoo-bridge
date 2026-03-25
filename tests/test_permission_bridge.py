@@ -1024,7 +1024,7 @@ class TestResPartnerDomains:
         slices = self._domain_to_slices(
             [('partner_share', '=', False)],
             field_types=self.PARTNER_FIELD_TYPES)
-        assert slices == [{'field': 'partner_share', 'op': '=', 'value': False}]
+        assert slices == [{'field': 'partnerShare', 'op': '=', 'value': False}]
 
     def test_partner_hierarchy_parent_of(self):
         """company_id parent_of → selfAndAncestorsOf (after hierarchy expansion)."""
@@ -1054,7 +1054,8 @@ class TestResPartnerDomains:
         or_children = slices[0]['$or']
         assert len(or_children) == 3
         # partner_share is boolean (from field_types) → = false, not IS NULL
-        assert or_children[0] == {'field': 'partner_share', 'op': '=', 'value': False}
+        # Now mapped to partnerShare via DIRECT_FIELD_MAP
+        assert or_children[0] == {'field': 'partnerShare', 'op': '=', 'value': False}
         assert or_children[1] == {'field': 'company$id', 'op': 'selfAndAncestorsOf',
                                   'value': [1, 2]}
         assert or_children[2] == {'field': 'company$id', 'op': 'is null'}
@@ -1152,7 +1153,7 @@ class TestBooleanVsNull:
         """Boolean field: ('partner_share', '=', False) → = false."""
         result = _leaf_to_condition(('partner_share', '=', False),
                                     ctx=FieldContext(field_types=self.FIELD_TYPES))
-        assert result == {'field': 'partner_share', 'op': '=', 'value': False}
+        assert result == {'field': 'partnerShare', 'op': '=', 'value': False}
 
     def test_boolean_neq_false_neq_false(self):
         """Boolean field: ('active', '!=', False) → != false (i.e., active is true)."""
@@ -1161,10 +1162,10 @@ class TestBooleanVsNull:
         assert result == {'field': 'active', 'op': '!=', 'value': False}
 
     def test_boolean_eq_false_negated(self):
-        """NOT ('partner_share', '=', False) → partner_share != false."""
+        """NOT ('partner_share', '=', False) → partnerShare != false."""
         result = _leaf_to_condition(('partner_share', '=', False),
                                     negate=True, ctx=FieldContext(field_types=self.FIELD_TYPES))
-        assert result == {'field': 'partner_share', 'op': '!=', 'value': False}
+        assert result == {'field': 'partnerShare', 'op': '!=', 'value': False}
 
     def test_boolean_neq_false_negated(self):
         """NOT ('active', '!=', False) → active = false."""
@@ -1187,7 +1188,7 @@ class TestBooleanVsNull:
     def test_no_field_types_defaults_to_null(self):
         """Without ctx (None), all '= False' treated as IS NULL."""
         result = _leaf_to_condition(('partner_share', '=', False))
-        assert result == {'field': 'partner_share', 'op': 'is null'}
+        assert result == {'field': 'partnerShare', 'op': 'is null'}
 
     def test_empty_field_types_defaults_to_null(self):
         """With empty field_types dict, all '= False' treated as IS NULL."""
