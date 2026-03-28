@@ -39,14 +39,11 @@ services:
     volumes:
       - ./foggy_mcp:/mnt/extra-addons/foggy_mcp:ro
       - odoo-data:/var/lib/odoo
+    entrypoint: ["/bin/bash", "-c"]
     command:
-      - odoo
-      - --database=odoo_demo
-      - --addons-path=/mnt/extra-addons
-      - --db_host=postgres
-      - --db_port=5432
-      - --db_user=odoo
-      - --db_password=odoo
+      - |
+        pip install --quiet --disable-pip-version-check litellm 2>/dev/null
+        exec odoo --database=odoo_demo --addons-path=/mnt/extra-addons --db_host=postgres --db_port=5432 --db_user=odoo --db_password=odoo
 
   # ──────────────────────────────────────────────
   # Foggy MCP Server (Java) — with built-in Odoo models
