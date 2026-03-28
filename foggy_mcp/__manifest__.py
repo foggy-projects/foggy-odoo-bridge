@@ -44,9 +44,9 @@ Data Privacy Notice:
     'website': 'https://github.com/nicholasgasior/foggy-data-mcp-bridge',
     'license': 'Other OSI approved licence',
     'depends': ['base', 'sale', 'purchase', 'account', 'stock', 'hr', 'crm'],
-    'external_dependencies': {
-        'python': ['litellm'],
-    },
+    # litellm is optional: only needed for AI Chat (Foggy AI → 对话).
+    # MCP query endpoint works without it. llm_service.py handles ImportError gracefully.
+    'external_dependencies': {},
     'data': [
         'security/ir.model.access.csv',
         'security/foggy_security.xml',
