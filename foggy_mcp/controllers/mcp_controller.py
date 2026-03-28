@@ -293,6 +293,15 @@ class McpController(http.Controller):
                 except Exception as e:
                     _logger.error("Failed to compute permission slices: %s", e, exc_info=True)
                     # Fail closed: deny access if we can't compute permissions
+                    from ..services.permission_bridge import PermissionFieldMappingError
+                    if isinstance(e, PermissionFieldMappingError):
+                        # Specific: unmapped permission fields — include detail for diagnosis
+                        return {
+                            'error': {
+                                'code': -32004,
+                                'message': str(e),
+                            }
+                        }
                     return {
                         'error': {
                             'code': -32004,

@@ -83,6 +83,8 @@ HIERARCHY_FIELD_MAP = _pb_mod.HIERARCHY_FIELD_MAP
 DIRECT_FIELD_MAP = _pb_mod.DIRECT_FIELD_MAP
 _build_field_types = _pb_mod._build_field_types
 FieldContext = _pb_mod.FieldContext
+PermissionFieldMappingError = _pb_mod.PermissionFieldMappingError
+_compute_model_slices = _pb_mod._compute_model_slices
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -278,10 +280,44 @@ class TestLeafToCondition:
         result = _leaf_to_condition((0, '=', 1))
         assert result == {'field': 'id', 'op': '=', 'value': -1}
 
-    def test_unmapped_field_passes_through(self):
-        """Fields not in DIRECT_FIELD_MAP are passed through as-is."""
-        result = _leaf_to_condition(('custom_field', '=', 'test'))
+    def test_unmapped_field_passes_through_and_tracked(self):
+        """Fields not in DIRECT_FIELD_MAP pass through but are tracked as unmapped."""
+        ctx = FieldContext()
+        result = _leaf_to_condition(('custom_field', '=', 'test'), ctx=ctx)
         assert result == {'field': 'custom_field', 'op': '=', 'value': 'test'}
+        assert 'custom_field' in ctx.unmapped_fields
+
+    def test_mapped_field_not_tracked(self):
+        """Fields in DIRECT_FIELD_MAP are NOT tracked as unmapped."""
+        ctx = FieldContext()
+        result = _leaf_to_condition(('company_id', '=', 1), ctx=ctx)
+        assert result == {'field': 'company$id', 'op': '=', 'value': 1}
+        assert len(ctx.unmapped_fields) == 0
+
+    def test_hierarchy_expanded_field_not_tracked(self):
+        """Fields with '$' (hierarchy-expanded) are NOT tracked as unmapped."""
+        ctx = FieldContext()
+        result = _leaf_to_condition(('company$id', 'selfAndDescendantsOf', 1), ctx=ctx)
+        assert result is not None
+        assert len(ctx.unmapped_fields) == 0
+
+    def test_tautology_not_tracked(self):
+        """Integer fields (tautology/contradiction) are NOT tracked as unmapped."""
+        ctx = FieldContext()
+        _leaf_to_condition((1, '=', 1), ctx=ctx)
+        assert len(ctx.unmapped_fields) == 0
+
+    def test_column_map_unmapped_field_tracked(self):
+        """When column_map is provided, fields not in it are tracked."""
+        ctx = FieldContext(column_map={'company_id': 'company$id'})
+        _leaf_to_condition(('website_id', '=', 1), ctx=ctx)
+        assert 'website_id' in ctx.unmapped_fields
+
+    def test_column_map_mapped_field_not_tracked(self):
+        """When column_map is provided, fields in it are NOT tracked."""
+        ctx = FieldContext(column_map={'company_id': 'company$id'})
+        _leaf_to_condition(('company_id', '=', 1), ctx=ctx)
+        assert len(ctx.unmapped_fields) == 0
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -1324,3 +1360,81 @@ class TestDynamicColumnMap:
         ctx = FieldContext(column_map={'amount_total': 'amountTotal'})
         result = _leaf_to_condition(('amount_total', '>', 100), ctx=ctx)
         assert result == {'field': 'amountTotal', 'op': '>', 'value': 100}
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Unmapped field tracking — end-to-end via _flatten_to_dsl_slices
+# ═══════════════════════════════════════════════════════════════════
+
+class TestUnmappedFieldTracking:
+    """Verify that unmapped ir.rule fields are tracked in FieldContext."""
+
+    def test_all_mapped_no_tracking(self):
+        """When all fields are mapped, unmapped_fields stays empty."""
+        domain = ['&', ('company_id', 'in', [1, 2]), ('user_id', '=', 42)]
+        tree = _parse_domain_ast(domain)
+        ctx = FieldContext()
+        slices = _flatten_to_dsl_slices(tree, ctx=ctx)
+        assert len(slices) == 2
+        assert len(ctx.unmapped_fields) == 0
+
+    def test_one_unmapped_field_tracked(self):
+        """A single unmapped field is detected."""
+        domain = ['&', ('company_id', '=', 1), ('website_id', '=', 3)]
+        tree = _parse_domain_ast(domain)
+        ctx = FieldContext()
+        _flatten_to_dsl_slices(tree, ctx=ctx)
+        assert ctx.unmapped_fields == {'website_id'}
+
+    def test_unmapped_in_or_branch(self):
+        """Unmapped fields inside $or branches are tracked."""
+        domain = ['|', ('company_id', '=', 1), ('website_id', '=', 3)]
+        tree = _parse_domain_ast(domain)
+        ctx = FieldContext()
+        _flatten_to_dsl_slices(tree, ctx=ctx)
+        assert 'website_id' in ctx.unmapped_fields
+
+    def test_multiple_unmapped_fields(self):
+        """Multiple unmapped fields are all tracked."""
+        domain = ['&', ('website_id', '=', 1), ('categ_id', 'in', [5])]
+        tree = _parse_domain_ast(domain)
+        ctx = FieldContext()
+        _flatten_to_dsl_slices(tree, ctx=ctx)
+        assert ctx.unmapped_fields == {'website_id', 'categ_id'}
+
+    def test_hierarchy_expanded_not_tracked(self):
+        """Fields already containing '$' (hierarchy-expanded) are not tracked."""
+        domain = [('company$id', 'selfAndDescendantsOf', 1)]
+        tree = _parse_domain_ast(domain)
+        ctx = FieldContext()
+        _flatten_to_dsl_slices(tree, ctx=ctx)
+        assert len(ctx.unmapped_fields) == 0
+
+    def test_tautology_in_domain_not_tracked(self):
+        """Tautology (1,'=',1) does not add integer to unmapped set."""
+        domain = ['&', (1, '=', 1), ('company_id', '=', 1)]
+        tree = _parse_domain_ast(domain)
+        ctx = FieldContext()
+        _flatten_to_dsl_slices(tree, ctx=ctx)
+        assert len(ctx.unmapped_fields) == 0
+
+    def test_column_map_unmapped_detected(self):
+        """With column_map, fields not in the map are tracked."""
+        domain = ['&', ('company_id', '=', 1), ('website_id', '=', 3)]
+        tree = _parse_domain_ast(domain)
+        ctx = FieldContext(column_map={'company_id': 'company$id'})
+        _flatten_to_dsl_slices(tree, ctx=ctx)
+        assert ctx.unmapped_fields == {'website_id'}
+
+    def test_mixed_mapped_and_unmapped_in_or(self):
+        """Real-world: res.partner global rule with unmapped field."""
+        # Simulates: ('partner_share', '=', False) OR ('company_id', ...) OR ('website_id', '=', 1)
+        domain = ['|', '|',
+                  ('partner_share', '=', False),
+                  ('company_id', '=', 1),
+                  ('website_id', '=', 1)]
+        tree = _parse_domain_ast(domain)
+        ctx = FieldContext(field_types={'partner_share': 'boolean'})
+        _flatten_to_dsl_slices(tree, ctx=ctx)
+        # partner_share and company_id are in DIRECT_FIELD_MAP; website_id is not
+        assert ctx.unmapped_fields == {'website_id'}

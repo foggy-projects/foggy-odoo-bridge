@@ -1,29 +1,54 @@
 # Foggy Odoo Bridge
 
-AI-powered natural language data queries for Odoo ERP via the MCP protocol.
+Let Claude, Cursor, and other MCP clients query Odoo data safely, while preserving Odoo permission rules.
+
+## Why This Exists
+
+Most "AI + ERP" demos fall apart on the same problem: the model can describe the question, but the system cannot safely preserve business permissions once it starts generating raw SQL.
+
+Foggy Odoo Bridge solves that by placing an Odoo-aware permission and model layer in front of the query engine:
+
+```text
+AI client -> MCP -> Odoo bridge -> Foggy semantic layer -> SQL -> PostgreSQL
+```
+
+Instead of letting the model invent SQL:
+
+- Odoo authentication stays in Odoo
+- `ir.model.access` gates available query models
+- `ir.rule` domains are converted into DSL slice conditions
+- multi-company boundaries stay enforced server-side
+- the downstream engine receives governed semantic queries
+
+## What You Get
+
+- Natural language analytics for Odoo through MCP
+- Odoo-aware permission injection before query execution
+- API key access for Claude Desktop and Cursor
+- Built-in TM/QM models for common Odoo business objects
+- Fail-closed behavior when permission evaluation fails
+- A practical first scenario for enterprise AI data access
+
+## Best First Use Cases
+
+- Sales analysis
+- Purchase analysis
+- Invoice and billing lookups
+- Inventory transfer reporting
+- Employee directory queries
+- Partner and customer exploration
 
 ## Architecture
 
-```
-AI Client ──MCP──→ Odoo MCP Gateway ──HTTP──→ Foggy MCP Server ──SQL──→ PostgreSQL
-                   (Python addon)              (Java, TM/QM engine)
-                   Auth + Permissions           Query building + execution
-                   (payload.slice injection)    (DSL engine, pure query)
+```text
+AI Client -> MCP -> Odoo MCP Gateway -> Foggy MCP Server -> PostgreSQL
+            (Python addon)            (semantic layer + DSL engine)
 ```
 
-- **Odoo MCP Gateway** (`foggy_mcp/`): Odoo addon handling MCP protocol, authentication, and permission slice injection
-- **Foggy MCP Server**: Java-based semantic query engine with **built-in Odoo models** (TM/QM)
+- **Odoo MCP Gateway** (`foggy_mcp/`): Handles MCP protocol, authentication, API keys, permission resolution, and payload slice injection
+- **Foggy MCP Server**: Semantic query engine with built-in Odoo TM/QM models
   - Docker image: `foggysource/foggy-odoo-mcp:v8.1.8-beta`
   - Dynamic DataSource configuration via API
-
-## Key Features
-
-- **Natural language queries**: Ask "What were the top customers by sales this month?" → structured data
-- **Row-level security**: Odoo `ir.rule` automatically converted to DSL slice conditions, injected into `payload.slice`
-- **Per-user tool filtering**: `ir.model.access` controls which query models each user can access
-- **Multi-company support**: Company isolation enforced server-side
-- **API Key auth**: Generate keys in Odoo for Claude Desktop / Cursor integration
-- **Fail-closed security**: If permission computation fails, access is denied (not allowed)
 
 ## Supported Odoo Models
 
@@ -88,6 +113,31 @@ Add to `claude_desktop_config.json`:
   }
 }
 ```
+
+Now you can ask questions like:
+
+- "Who are the top customers by sales this month?"
+- "Which purchase orders are delayed?"
+- "Show inventory transfers by warehouse this week"
+- "Which invoices are still unpaid?"
+
+## Why This Is Different
+
+Most integrations stop at "LLM can reach Odoo data." This project is about governed access, not just connectivity.
+
+- It preserves Odoo authorization semantics before query execution.
+- It maps ERP models into business-friendly semantic query models.
+- It keeps the AI client away from raw SQL and direct schema prompting.
+- It is designed for real internal deployments, not just demos.
+
+## Key Features
+
+- **Natural language queries**: Ask business questions and get structured results
+- **Row-level security**: Odoo `ir.rule` becomes DSL slice conditions in `payload.slice`
+- **Per-user tool filtering**: `ir.model.access` controls query model visibility
+- **Multi-company support**: Company isolation enforced server-side
+- **API key auth**: Create keys in Odoo for Claude Desktop / Cursor
+- **Fail-closed security**: Permission failures deny access instead of allowing it
 
 ## Security Model
 

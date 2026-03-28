@@ -25,7 +25,7 @@ Output is standard DSL slice format:
     ]
 """
 import logging
-from typing import NamedTuple, Optional
+from typing import Optional
 
 from odoo.osv import expression
 from odoo.tools.safe_eval import safe_eval
@@ -34,19 +34,25 @@ from odoo.tools import safe_eval as _safe_eval_mod
 from .tool_registry import QM_TO_ODOO_MODEL
 
 
-class FieldContext(NamedTuple):
-    """Immutable context for AST traversal — built once per model, used in _leaf_to_condition.
+class FieldContext:
+    """Mutable context for AST traversal — built once per model, used in _leaf_to_condition.
 
     Attributes:
         column_map: {db_column: qm_field} from FieldMappingRegistry (per-model dynamic mapping)
         field_types: {field_name: type_string} from Odoo ORM (for Boolean vs NULL disambiguation)
+        unmapped_fields: set of Odoo field names that could not be mapped to QM fields
     """
-    column_map: Optional[dict] = None
-    field_types: Optional[dict] = None
+    __slots__ = ('column_map', 'field_types', 'unmapped_fields')
+
+    def __init__(self, column_map=None, field_types=None):
+        self.column_map = column_map
+        self.field_types = field_types
+        self.unmapped_fields = set()
 
 
-# Sentinel for ctx=None — avoids allocating an empty NamedTuple on each call
-_EMPTY_CTX = FieldContext()
+class PermissionFieldMappingError(Exception):
+    """Raised when ir.rule fields cannot be mapped to QM model fields (fail-closed)."""
+    pass
 
 _logger = logging.getLogger(__name__)
 
@@ -294,6 +300,18 @@ def _compute_model_slices(env, uid, odoo_model, column_map=None):
                         # Multi-condition branch → {"$and": [cond1, cond2, ...]}
                         or_children.append({'$and': branch})
                 slices.append({'$or': or_children})
+
+    # ── Fail-closed: reject query if any ir.rule field is unmapped ──
+    # If a permission rule references an Odoo field that has no corresponding
+    # QM model field, the rule cannot be enforced → data leakage risk.
+    # Deny access and prompt user to add the field to TM/QM definitions.
+    if ctx.unmapped_fields:
+        raise PermissionFieldMappingError(
+            f"权限规则字段在 QM 模型中无对应映射，查询被拒绝（fail-closed）。"
+            f"未映射字段: {sorted(ctx.unmapped_fields)}。"
+            f"请在 TM/QM 模型定义中添加对应字段，或在 DIRECT_FIELD_MAP 中补充映射。"
+            f"Odoo 模型: {odoo_model}"
+        )
 
     return slices
 
@@ -699,7 +717,7 @@ def _leaf_to_condition(leaf, negate=False, ctx=None):
         dict: {'field': ..., 'op': ..., 'value': ...} or None if unsupported
     """
     field, op, value = leaf
-    _ctx = ctx or _EMPTY_CTX
+    _ctx = ctx or FieldContext()
 
     # ── Handle tautology / contradiction literals ──
     # (1, '=', 1) → always true → no filter (return None)
@@ -725,8 +743,16 @@ def _leaf_to_condition(leaf, negate=False, ctx=None):
     # Fall back to DIRECT_FIELD_MAP only when registry is unavailable.
     if _ctx.column_map:
         qm_field = _ctx.column_map.get(field, field)
+        is_mapped = field in _ctx.column_map
     else:
         qm_field = DIRECT_FIELD_MAP.get(field, field)
+        is_mapped = field in DIRECT_FIELD_MAP
+
+    # Track unmapped fields for fail-closed enforcement.
+    # Skip: integer fields (tautology/contradiction literals), fields already
+    # containing '$' (hierarchy-expanded QM dimension fields like company$id).
+    if not is_mapped and not isinstance(field, int) and '$' not in field:
+        _ctx.unmapped_fields.add(field)
 
     # ── Handle False value: Boolean vs NULL ──
     # Odoo uses False for both "IS NULL" (Many2one) and "equals false" (Boolean).

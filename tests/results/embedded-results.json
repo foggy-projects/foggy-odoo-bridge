@@ -1,302 +1,318 @@
 {
   "engine_mode": "embedded",
-  "via": "odoo-mcp",
-  "timestamp": "2026-03-22T19:34:28",
+  "odoo_url": "http://localhost:8069",
+  "database": "odoo_demo",
+  "timestamp": "2026-03-25T23:14:04",
   "scenarios": [
     {
       "id": "T01",
-      "name": "res_partner: name+email+city",
+      "name": "基础查询：合作伙伴",
+      "category": "基础查询",
       "model": "OdooResPartnerQueryModel",
       "success": true,
       "row_count": 0,
-      "duration_ms": 3228.92,
-      "error": "",
+      "total": 0,
+      "duration_ms": 45.58,
       "sql": "",
+      "error": "",
       "sample_data": []
     },
     {
       "id": "T02",
-      "name": "res_company: name",
+      "name": "基础查询：公司",
+      "category": "基础查询",
       "model": "OdooResCompanyQueryModel",
       "success": true,
       "row_count": 2,
-      "duration_ms": 47.23,
+      "total": 2,
+      "duration_ms": 2.4,
+      "sql": "SELECT t.name AS \"Company Name\"\nFROM res_company AS t\nLIMIT 5",
       "error": "",
-      "sql": "",
       "sample_data": [
         {
-          "name": "My Company (Chicago)"
+          "Company Name": "My Company (Chicago)"
         },
         {
-          "name": "My Company (San Francisco)"
+          "Company Name": "My Company (San Francisco)"
         }
       ]
     },
     {
       "id": "T03",
-      "name": "hr_employee: name",
+      "name": "基础查询：员工",
+      "category": "基础查询",
       "model": "OdooHrEmployeeQueryModel",
       "success": true,
-      "row_count": 20,
-      "duration_ms": 48.63,
+      "row_count": 5,
+      "total": 5,
+      "duration_ms": 1.16,
+      "sql": "SELECT t.name AS \"Employee Name\"\nFROM hr_employee AS t\nLEFT JOIN res_company AS rc ON t.company_id = rc.id\nWHERE (rc.id IN (?, ?) OR rc.id IS NULL)\nLIMIT 5",
       "error": "",
-      "sql": "",
       "sample_data": [
         {
-          "name": "Beth Evans"
+          "Employee Name": "Mitchell Admin"
         },
         {
-          "name": "Walter Horton"
+          "Employee Name": "Anita Oliver"
         },
         {
-          "name": "Paul Williams"
+          "Employee Name": "Jeffrey Kelly"
         }
       ]
     },
     {
       "id": "T04",
-      "name": "crm_lead: name",
+      "name": "基础查询：CRM 线索",
+      "category": "基础查询",
       "model": "OdooCrmLeadQueryModel",
       "success": true,
-      "row_count": 44,
-      "duration_ms": 60.61,
+      "row_count": 5,
+      "total": 5,
+      "duration_ms": 1.91,
+      "sql": "SELECT t.name AS \"Lead Name\"\nFROM crm_lead AS t\nLEFT JOIN res_company AS rc ON t.company_id = rc.id\nWHERE (rc.id IN (?, ?) OR rc.id IS NULL)\nLIMIT 5",
       "error": "",
-      "sql": "",
       "sample_data": [
         {
-          "name": "Quote for 35 windows"
+          "Lead Name": "Club Office Furnitures"
         },
         {
-          "name": "Modernize old offices"
+          "Lead Name": "Design Software"
         },
         {
-          "name": "Furnitures for new location"
+          "Lead Name": "Quotation for 50 Chairs"
         }
       ]
     },
     {
       "id": "T05",
-      "name": "sale_order: name+amountTotal",
+      "name": "基础查询：销售订单",
+      "category": "基础查询",
       "model": "OdooSaleOrderQueryModel",
       "success": true,
-      "row_count": 24,
-      "duration_ms": 66.93,
+      "row_count": 5,
+      "total": 5,
+      "duration_ms": 1.4,
+      "sql": "SELECT t.name AS \"Order Reference\", SUM(t.amount_total) AS \"Total\"\nFROM sale_order AS t\nLEFT JOIN res_company AS rc ON t.company_id = rc.id\nWHERE rc.id IN (?, ?)\nGROUP BY t.name\nLIMIT 5",
       "error": "",
-      "sql": "",
       "sample_data": [
         {
-          "name": "S00024",
-          "amountTotal": 2288.5
+          "Order Reference": "S00009",
+          "Total": "752.11"
         },
         {
-          "name": "S00023",
-          "amountTotal": 5002.5
+          "Order Reference": "S00008",
+          "Total": "531.30"
         },
         {
-          "name": "S00022",
-          "amountTotal": 1696.25
+          "Order Reference": "S00020",
+          "Total": "3389.63"
         }
       ]
     },
     {
       "id": "T06",
-      "name": "purchase_order: name",
+      "name": "基础查询：采购订单",
+      "category": "基础查询",
       "model": "OdooPurchaseOrderQueryModel",
       "success": true,
-      "row_count": 11,
-      "duration_ms": 54.75,
+      "row_count": 5,
+      "total": 5,
+      "duration_ms": 1.07,
+      "sql": "SELECT t.name AS \"Order Reference\"\nFROM purchase_order AS t\nLEFT JOIN res_company AS rc ON t.company_id = rc.id\nWHERE rc.id IN (?, ?)\nLIMIT 5",
       "error": "",
-      "sql": "",
       "sample_data": [
         {
-          "name": "P00011"
+          "Order Reference": "P00004"
         },
         {
-          "name": "P00010"
+          "Order Reference": "P00001"
         },
         {
-          "name": "P00009"
+          "Order Reference": "P00003"
         }
       ]
     },
     {
       "id": "T07",
-      "name": "account_move: name",
+      "name": "基础查询：会计分录",
+      "category": "基础查询",
       "model": "OdooAccountMoveQueryModel",
       "success": true,
-      "row_count": 24,
-      "duration_ms": 49.54,
+      "row_count": 5,
+      "total": 5,
+      "duration_ms": 1.27,
+      "sql": "SELECT t.name AS \"Number\"\nFROM account_move AS t\nLEFT JOIN res_company AS rc ON t.company_id = rc.id\nWHERE rc.id IN (?, ?)\nLIMIT 5",
       "error": "",
-      "sql": "",
       "sample_data": [
         {
-          "name": "BNK1/2026/00008"
+          "Number": "BNK1/2026/00001"
         },
         {
-          "name": "BNK1/2026/00007"
+          "Number": "BNK1/2026/00003"
         },
         {
-          "name": "BNK1/2026/00006"
+          "Number": "BNK1/2026/00002"
         }
       ]
     },
     {
       "id": "T08",
-      "name": "stock_picking: name",
+      "name": "基础查询：库存调拨",
+      "category": "基础查询",
       "model": "OdooStockPickingQueryModel",
       "success": true,
-      "row_count": 25,
-      "duration_ms": 44.66,
+      "row_count": 5,
+      "total": 5,
+      "duration_ms": 1.74,
+      "sql": "SELECT t.name AS \"Reference\"\nFROM stock_picking AS t\nLEFT JOIN res_company AS rc ON t.company_id = rc.id\nWHERE rc.id IN (?, ?)\nLIMIT 5",
       "error": "",
-      "sql": "",
       "sample_data": [
         {
-          "name": "WH/OUT/00011"
+          "Reference": "WH/OUT/00001"
         },
         {
-          "name": "WH/OUT/00010"
+          "Reference": "WH/IN/00002"
         },
         {
-          "name": "WH/OUT/00009"
+          "Reference": "WH/IN/00003"
         }
       ]
     },
     {
       "id": "T10",
-      "name": "agg: companyCount",
+      "name": "聚合：公司数",
+      "category": "聚合分析",
       "model": "OdooResCompanyQueryModel",
       "success": true,
-      "row_count": 2,
-      "duration_ms": 60.49,
+      "row_count": 1,
+      "total": 1,
+      "duration_ms": 1.12,
+      "sql": "SELECT COUNT(DISTINCT t.id) AS \"Company Count\"\nFROM res_company AS t\nLIMIT 1000",
       "error": "",
-      "sql": "",
       "sample_data": [
         {
-          "companyCount": 2
-        },
-        {
-          "companyCount": 1
+          "Company Count": 2
         }
       ]
     },
     {
       "id": "T11",
-      "name": "agg: employeeCount",
+      "name": "聚合：员工数",
+      "category": "聚合分析",
       "model": "OdooHrEmployeeQueryModel",
       "success": true,
-      "row_count": 20,
-      "duration_ms": 58.78,
+      "row_count": 1,
+      "total": 1,
+      "duration_ms": 1.26,
+      "sql": "SELECT COUNT(DISTINCT t.id) AS \"Employee Count\"\nFROM hr_employee AS t\nLEFT JOIN res_company AS rc ON t.company_id = rc.id\nWHERE (rc.id IN (?, ?) OR rc.id IS NULL)\nLIMIT 1000",
       "error": "",
-      "sql": "",
       "sample_data": [
         {
-          "employeeCount": 20
-        },
-        {
-          "employeeCount": 19
-        },
-        {
-          "employeeCount": 18
+          "Employee Count": 20
         }
       ]
     },
     {
       "id": "T15",
-      "name": "join: dept+employeeCount",
+      "name": "JOIN+分组：各部门员工数",
+      "category": "维度JOIN",
       "model": "OdooHrEmployeeQueryModel",
       "success": true,
       "row_count": 7,
-      "duration_ms": 63.86,
+      "total": 7,
+      "duration_ms": 1.51,
+      "sql": "SELECT hd.complete_name AS \"Department\", COUNT(DISTINCT t.id) AS \"Employee Count\"\nFROM hr_employee AS t\nLEFT JOIN hr_department AS hd ON t.department_id = hd.id\nLEFT JOIN res_company AS rc ON t.company_id = rc.id\nWHERE (rc.id IN (?, ?) OR rc.id IS NULL)\nGROUP BY hd.complete_name\nLIMIT 1000",
       "error": "",
-      "sql": "",
       "sample_data": [
         {
-          "department$caption": "Management",
-          "employeeCount": 2
+          "Department": "Management",
+          "Employee Count": 2
         },
         {
-          "department$caption": "Management / Administration",
-          "employeeCount": 1
+          "Department": "Management / Administration",
+          "Employee Count": 1
         },
         {
-          "department$caption": "Management / Professional Services",
-          "employeeCount": 5
+          "Department": "Management / Professional Services",
+          "Employee Count": 5
         }
       ]
     },
     {
       "id": "T16",
-      "name": "join: partner by country",
+      "name": "JOIN+分组：合作伙伴按国家分布",
+      "category": "维度JOIN",
       "model": "OdooResPartnerQueryModel",
       "success": true,
       "row_count": 0,
-      "duration_ms": 55.15,
-      "error": "",
+      "total": 0,
+      "duration_ms": 48.66,
       "sql": "",
+      "error": "",
       "sample_data": []
     },
     {
       "id": "T22",
-      "name": "self-ref: company+parent",
+      "name": "自引用维度：公司及母公司",
+      "category": "维度JOIN",
       "model": "OdooResCompanyQueryModel",
       "success": true,
       "row_count": 2,
-      "duration_ms": 45.11,
+      "total": 2,
+      "duration_ms": 1.48,
+      "sql": "SELECT t.name AS \"Company Name\", rc.name AS \"Parent Company\"\nFROM res_company AS t\nLEFT JOIN res_company AS rc ON t.parent_id = rc.id\nLIMIT 5",
       "error": "",
-      "sql": "",
       "sample_data": [
         {
-          "name": "My Company (Chicago)",
-          "parent$caption": null
+          "Company Name": "My Company (Chicago)",
+          "Parent Company": null
         },
         {
-          "name": "My Company (San Francisco)",
-          "parent$caption": null
+          "Company Name": "My Company (San Francisco)",
+          "Parent Company": null
         }
       ]
     },
     {
       "id": "T31",
-      "name": "sort: crm expectedRevenue DESC",
+      "name": "排序：CRM 线索按预期收入 DESC",
+      "category": "排序",
       "model": "OdooCrmLeadQueryModel",
       "success": true,
-      "row_count": 44,
-      "duration_ms": 49.21,
+      "row_count": 5,
+      "total": 5,
+      "duration_ms": 1.74,
+      "sql": "SELECT t.name AS \"Lead Name\", SUM(t.expected_revenue) AS \"Expected Revenue\"\nFROM crm_lead AS t\nLEFT JOIN res_company AS rc ON t.company_id = rc.id\nWHERE (rc.id IN (?, ?) OR rc.id IS NULL)\nGROUP BY t.name\nORDER BY \"Expected Revenue\" DESC\nLIMIT 5",
       "error": "",
-      "sql": "",
       "sample_data": [
         {
-          "name": "Acadia College Furnitures",
-          "expectedRevenue": null
+          "Lead Name": "Pricing for 25 desks",
+          "Expected Revenue": null
         },
         {
-          "name": "Club Office More Desks",
-          "expectedRevenue": null
+          "Lead Name": "Acadia College Furnitures",
+          "Expected Revenue": null
         },
         {
-          "name": "Quotation for 100 Desks",
-          "expectedRevenue": null
+          "Lead Name": "Design Software",
+          "Expected Revenue": null
         }
       ]
     },
     {
       "id": "T42",
-      "name": "agg: employeeCount total",
+      "name": "聚合：平均（员工总数）",
+      "category": "统计",
       "model": "OdooHrEmployeeQueryModel",
       "success": true,
-      "row_count": 20,
-      "duration_ms": 44.01,
+      "row_count": 1,
+      "total": 1,
+      "duration_ms": 1.26,
+      "sql": "SELECT COUNT(DISTINCT t.id) AS \"Employee Count\"\nFROM hr_employee AS t\nLEFT JOIN res_company AS rc ON t.company_id = rc.id\nWHERE (rc.id IN (?, ?) OR rc.id IS NULL)\nLIMIT 1000",
       "error": "",
-      "sql": "",
       "sample_data": [
         {
-          "employeeCount": 20
-        },
-        {
-          "employeeCount": 19
-        },
-        {
-          "employeeCount": 18
+          "Employee Count": 20
         }
       ]
     }
