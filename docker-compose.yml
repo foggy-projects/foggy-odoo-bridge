@@ -25,7 +25,8 @@ services:
   # Odoo 17 — with foggy_mcp addon
   # ──────────────────────────────────────────────
   odoo:
-    image: odoo:17.0
+    build: .
+    image: foggy-odoo:17.0
     container_name: foggy-odoo
     depends_on:
       postgres:

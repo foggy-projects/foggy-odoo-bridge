@@ -97,26 +97,20 @@ pip install anthropic
 
 **Docker environment:**
 
-The packages need to be installed inside the Odoo container. The quick way (does **not** persist after restart):
+The included `Dockerfile` already installs `openai` and `anthropic` when you build with `docker compose`. If you used `docker compose up -d` during installation, the packages are already available.
+
+To rebuild after changes (e.g., updating SDK versions):
+
+```bash
+docker compose build odoo
+docker compose up -d
+```
+
+If you are using a plain `odoo:17.0` image without the included `Dockerfile`, you can install manually (does **not** persist after container restart):
 
 ```bash
 docker exec foggy-odoo pip install openai anthropic
 docker restart foggy-odoo
-```
-
-For a persistent setup, add a startup command to your `docker-compose.yml`:
-
-```yaml
-odoo:
-  # ...
-  command: >
-    bash -c "pip install openai anthropic && exec /entrypoint.sh odoo"
-```
-
-Then apply with:
-
-```bash
-docker compose up -d --force-recreate odoo
 ```
 
 If you do not use AI Chat, you can skip this section entirely.

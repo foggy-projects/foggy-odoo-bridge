@@ -97,26 +97,20 @@ pip install anthropic
 
 **Docker 环境：**
 
-需要在 Odoo 容器内安装。快速方式（**重启后失效**）：
+项目自带的 `Dockerfile` 在构建时已自动安装 `openai` 和 `anthropic`。如果你通过 `docker compose up -d` 启动，这些包已经可用。
+
+需要重新构建时（如升级 SDK 版本）：
+
+```bash
+docker compose build odoo
+docker compose up -d
+```
+
+如果你使用的是原始 `odoo:17.0` 镜像（未使用项目 `Dockerfile`），可以手动安装（**重启后失效**）：
 
 ```bash
 docker exec foggy-odoo pip install openai anthropic
 docker restart foggy-odoo
-```
-
-如需持久安装，在 `docker-compose.yml` 中添加启动命令：
-
-```yaml
-odoo:
-  # ...
-  command: >
-    bash -c "pip install openai anthropic && exec /entrypoint.sh odoo"
-```
-
-然后执行：
-
-```bash
-docker compose up -d --force-recreate odoo
 ```
 
 如果不使用 AI Chat，可跳过本节。

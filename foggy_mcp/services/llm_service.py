@@ -240,13 +240,18 @@ def _call_openai(config, messages, tools):
     except ImportError:
         return {'message': None, 'error': (
             '**AI Chat 需要安装 `openai` 包**\n\n'
-            'Docker 环境安装（重启后失效）：\n'
+            '如果使用项目自带的 `docker-compose.yml`，请重新构建镜像：\n'
+            '```\n'
+            'docker compose build odoo\n'
+            'docker compose up -d\n'
+            '```\n'
+            '或快速安装（重启后失效）：\n'
             '```\n'
             'docker exec foggy-odoo pip install openai\n'
             'docker restart foggy-odoo\n'
             '```\n'
-            '持久安装方法请参考 '
-            '[安装说明 → 启用 AI Chat]'
+            '详细说明：'
+            '[安装指南 → 启用 AI Chat]'
             '(https://github.com/foggy-projects/foggy-odoo-bridge/blob/main/INSTALL_GUIDE.md'
             '#optional-enable-built-in-ai-chat)'
         )}
@@ -321,13 +326,18 @@ def _call_anthropic(config, messages, tools):
     except ImportError:
         return {'message': None, 'error': (
             '**AI Chat 需要安装 `anthropic` 包**\n\n'
-            'Docker 环境安装（重启后失效）：\n'
+            '如果使用项目自带的 `docker-compose.yml`，请重新构建镜像：\n'
+            '```\n'
+            'docker compose build odoo\n'
+            'docker compose up -d\n'
+            '```\n'
+            '或快速安装（重启后失效）：\n'
             '```\n'
             'docker exec foggy-odoo pip install anthropic\n'
             'docker restart foggy-odoo\n'
             '```\n'
-            '持久安装方法请参考 '
-            '[安装说明 → 启用 AI Chat]'
+            '详细说明：'
+            '[安装指南 → 启用 AI Chat]'
             '(https://github.com/foggy-projects/foggy-odoo-bridge/blob/main/INSTALL_GUIDE.md'
             '#optional-enable-built-in-ai-chat)'
         )}
