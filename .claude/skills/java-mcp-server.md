@@ -15,7 +15,7 @@ cd D:/foggy-projects/foggy-data-mcp/foggy-data-mcp-bridge
 mvn clean package -pl foggy-mcp-launcher -am -DskipTests
 ```
 
-JAR 文件：`foggy-mcp-launcher/target/foggy-mcp-launcher-8.1.8.beta.jar`
+JAR 文件：`foggy-mcp-launcher/target/foggy-mcp-launcher-8.1.9.beta.jar`
 
 ### 2. 停止旧进程
 
@@ -27,7 +27,7 @@ Get-NetTCPConnection -LocalPort 7108 -ErrorAction SilentlyContinue | ForEach-Obj
 
 ```bash
 cd D:/foggy-projects/foggy-data-mcp/foggy-data-mcp-bridge
-java -jar foggy-mcp-launcher/target/foggy-mcp-launcher-8.1.8.beta.jar \
+java -jar foggy-mcp-launcher/target/foggy-mcp-launcher-8.1.9.beta.jar \
   --spring.profiles.active=lite,odoo \
   --server.port=7108 \
   --spring.datasource.url=jdbc:postgresql://localhost:5432/odoo_demo \
