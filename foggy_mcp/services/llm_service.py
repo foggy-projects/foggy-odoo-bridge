@@ -256,6 +256,21 @@ def _call_openai(config, messages, tools):
         call_kwargs['tool_choice'] = 'auto'
 
     response = client.chat.completions.create(**call_kwargs)
+
+    # Guard against non-standard API responses (some OpenAI-compatible
+    # endpoints return a raw string or dict instead of a ChatCompletion object)
+    if isinstance(response, str):
+        _logger.warning("LLM endpoint returned a raw string instead of ChatCompletion object. "
+                        "base_url=%s, model=%s, response_preview=%s",
+                        config.get('base_url'), config['model'], response[:200])
+        return {'message': {'role': 'assistant', 'content': response}, 'error': None}
+
+    if not hasattr(response, 'choices') or not response.choices:
+        _logger.error("LLM endpoint returned unexpected response type: %s", type(response))
+        return {'message': None,
+                'error': f'LLM 端点返回了非标准响应格式（{type(response).__name__}）。'
+                         f'请检查 API Base URL 和模型名称是否正确。'}
+
     choice = response.choices[0]
     msg = choice.message
 
