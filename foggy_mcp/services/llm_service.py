@@ -238,7 +238,18 @@ def _call_openai(config, messages, tools):
     try:
         from openai import OpenAI
     except ImportError:
-        return {'message': None, 'error': 'openai 包未安装。请运行：pip install openai'}
+        return {'message': None, 'error': (
+            '**AI Chat 需要安装 `openai` 包**\n\n'
+            'Docker 环境安装（重启后失效）：\n'
+            '```\n'
+            'docker exec foggy-odoo pip install openai\n'
+            'docker restart foggy-odoo\n'
+            '```\n'
+            '持久安装方法请参考 '
+            '[安装说明 → 启用 AI Chat]'
+            '(https://github.com/foggy-projects/foggy-odoo-bridge/blob/main/INSTALL_GUIDE.md'
+            '#optional-enable-built-in-ai-chat)'
+        )}
 
     client_kwargs = {'api_key': config['api_key']}
     if config['base_url']:
@@ -308,7 +319,18 @@ def _call_anthropic(config, messages, tools):
     try:
         from anthropic import Anthropic
     except ImportError:
-        return {'message': None, 'error': 'anthropic 包未安装。请运行：pip install anthropic'}
+        return {'message': None, 'error': (
+            '**AI Chat 需要安装 `anthropic` 包**\n\n'
+            'Docker 环境安装（重启后失效）：\n'
+            '```\n'
+            'docker exec foggy-odoo pip install anthropic\n'
+            'docker restart foggy-odoo\n'
+            '```\n'
+            '持久安装方法请参考 '
+            '[安装说明 → 启用 AI Chat]'
+            '(https://github.com/foggy-projects/foggy-odoo-bridge/blob/main/INSTALL_GUIDE.md'
+            '#optional-enable-built-in-ai-chat)'
+        )}
 
     client_kwargs = {'api_key': config['api_key']}
     if config['base_url']:
@@ -460,7 +482,16 @@ def chat(env, uid, session_id, user_message):
     if not config['api_key']:
         return {
             'content': '',
-            'error': 'LLM API key not configured. Go to Settings → Foggy MCP → AI Chat.',
+            'error': (
+                '**AI Chat 尚未配置 LLM**\n\n'
+                '请前往 **Settings → Foggy MCP → AI Chat Configuration** 填写：\n'
+                '- **Provider**：OpenAI-compatible 或 Anthropic\n'
+                '- **API Key**：你的 API Key\n'
+                '- **Model**：如 `gpt-4o-mini` 或 `claude-3-5-haiku-20241022`\n\n'
+                '详细步骤：[安装说明 → 启用 AI Chat]'
+                '(https://github.com/foggy-projects/foggy-odoo-bridge/blob/main/INSTALL_GUIDE.md'
+                '#optional-enable-built-in-ai-chat)'
+            ),
         }
 
     Session = env['foggy.chat.session'].sudo()

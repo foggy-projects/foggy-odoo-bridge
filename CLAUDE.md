@@ -86,6 +86,7 @@ foggy-odoo-bridge/
 |------|------|------|
 | foggy-data-mcp-bridge | `../foggy-data-mcp-bridge` | Java 版 Foggy MCP Server（网关模式后端） |
 | foggy-data-mcp-bridge-python | `../foggy-data-mcp-bridge-python` | Python 版引擎源码（vendored 到 `lib/`） |
+| **growth-ops** | `../growth-ops` | **增长运营工作区**：统一管理推广目标、渠道策略、发布动作、文案素材、反馈记录和迭代待办。包含发布清单、Runbook、帖子定稿、GitHub Release 正文、视频脚本、截图素材等，是推广发布的唯一源。 |
 
 ## Vendored foggy-python
 

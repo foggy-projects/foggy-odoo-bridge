@@ -85,12 +85,38 @@ No external service is required — the query engine runs inside the Odoo proces
 
 Only install LLM SDK packages if you want to use **Foggy AI Chat** directly inside Odoo:
 
+**Standard (non-Docker) environment:**
+
 ```bash
 # OpenAI / DeepSeek / Ollama / other OpenAI-compatible endpoints
 pip install openai
 
 # Anthropic / Claude
 pip install anthropic
+```
+
+**Docker environment:**
+
+The packages need to be installed inside the Odoo container. The quick way (does **not** persist after restart):
+
+```bash
+docker exec foggy-odoo pip install openai anthropic
+docker restart foggy-odoo
+```
+
+For a persistent setup, add a startup command to your `docker-compose.yml`:
+
+```yaml
+odoo:
+  # ...
+  command: >
+    bash -c "pip install openai anthropic && exec /entrypoint.sh odoo"
+```
+
+Then apply with:
+
+```bash
+docker compose up -d --force-recreate odoo
 ```
 
 If you do not use AI Chat, you can skip this section entirely.

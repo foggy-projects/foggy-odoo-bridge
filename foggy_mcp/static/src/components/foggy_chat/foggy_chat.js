@@ -207,6 +207,9 @@ class FoggyChat extends Component {
         html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
         // Italic
         html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+        // Markdown links [text](url)
+        html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g,
+            '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
         // Unordered list items (- item)
         html = html.replace(/^(\s*)[-*]\s+(.+)$/gm, '$1<li>$2</li>');
         // Wrap consecutive <li> in <ul>

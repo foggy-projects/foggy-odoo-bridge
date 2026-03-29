@@ -85,12 +85,38 @@ cp -r foggy_mcp /path/to/odoo/addons/
 
 只有在你要直接在 Odoo 内使用 **Foggy AI Chat** 时，才需要安装 LLM SDK：
 
+**标准（非 Docker）环境：**
+
 ```bash
 # OpenAI / DeepSeek / Ollama / 其他 OpenAI 兼容接口
 pip install openai
 
 # Anthropic / Claude
 pip install anthropic
+```
+
+**Docker 环境：**
+
+需要在 Odoo 容器内安装。快速方式（**重启后失效**）：
+
+```bash
+docker exec foggy-odoo pip install openai anthropic
+docker restart foggy-odoo
+```
+
+如需持久安装，在 `docker-compose.yml` 中添加启动命令：
+
+```yaml
+odoo:
+  # ...
+  command: >
+    bash -c "pip install openai anthropic && exec /entrypoint.sh odoo"
+```
+
+然后执行：
+
+```bash
+docker compose up -d --force-recreate odoo
 ```
 
 如果不使用 AI Chat，可跳过本节。
