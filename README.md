@@ -2,7 +2,7 @@
 
 [English](./README.md) | [简体中文](./README.zh-CN.md)
 
-Governed MCP access to Odoo data with Odoo permission preservation, built-in AI chat, and embedded or external Foggy engines.
+Governed MCP access to Odoo data with Odoo permission preservation and built-in AI chat.
 
 Foggy Odoo Bridge is an Odoo addon that lets Claude, Cursor, built-in Odoo AI Chat, and other MCP clients query Odoo business data without bypassing Odoo permissions.
 
@@ -31,34 +31,21 @@ Foggy Odoo Bridge solves that by placing an Odoo-aware permission and model laye
 - API key access for Claude Desktop and Cursor
 - Built-in AI Chat inside Odoo
 - Built-in TM/QM models for common Odoo business objects
-- Embedded Python engine or external Foggy service deployment
 - Fail-closed behavior when permission evaluation fails
 - A practical governed AI data layer for Odoo
 
-## Deployment Modes
-
-- **Embedded Python engine**: runs inside the Odoo process
-- **External Python engine**: route requests to a separate Foggy Python service
-- **External Java engine**: route requests to a separate Foggy Java service
-
-Choose embedded mode when you want the fastest path to a working demo or smaller self-hosted deployment. Choose external Python or Java mode when you want to isolate the query engine from Odoo.
-
 ## Dependency Notes
-
-Dependency requirements depend on how you use the addon:
 
 | Scenario | Extra Python packages needed in the Odoo environment |
 |---|---|
-| Standalone MCP gateway only (no built-in AI Chat) | None |
+| MCP service only (no built-in AI Chat) | None |
 | Built-in AI Chat with OpenAI-compatible providers | `openai` |
 | Built-in AI Chat with Anthropic / Claude | `anthropic` |
-| Embedded engine mode | `foggy-python` |
 
 Notes:
 
 - If you use this addon only as an MCP service for Claude Desktop, Cursor, or other MCP clients, you do **not** need `openai` or `anthropic` in the Odoo environment.
 - `openai` / `anthropic` are only optional SDK dependencies for the built-in AI Chat feature.
-- If you choose gateway mode with an external Java or Python Foggy service, the Odoo addon itself does not require those LLM SDK packages.
 
 ## Database Support
 
@@ -72,32 +59,11 @@ This matches the current wizard flow, SQL assets, test coverage, and verified de
 
 ## Quick Start
 
-### Using Setup Wizard (Recommended)
-
 1. **Install the Odoo addon**: Copy `foggy_mcp/` to your Odoo addons path and install
 2. **Open Setup Wizard**: Settings → Foggy MCP → 🧙 Setup Wizard
-3. **Follow the steps**:
-   - Copy the generated Docker command
-   - Run it to start Foggy MCP Server (models built-in)
-   - Test connection
-   - Configure data source (auto-fills Odoo DB info)
-   - Initialize closure tables
+3. **Follow the steps**: Initialize closure tables → Create API Key → Done
 
-### Docker Quick Start
-
-```bash
-# Start Foggy MCP Server with built-in Odoo models
-docker run -d \
-  --name foggy-mcp \
-  -p 7108:8080 \
-  -e SPRING_PROFILES_ACTIVE=lite,odoo \
-  -e FOGGY_AUTH_TOKEN=your_token_here \
-  --add-host=host.docker.internal:host-gateway \
-  --restart unless-stopped \
-  foggysource/foggy-odoo-mcp:v8.1.8-beta
-```
-
-Then use the Setup Wizard to configure the data source.
+No external service is required — the query engine runs inside the Odoo process.
 
 ### Built-in AI Chat Dependencies
 
@@ -158,14 +124,11 @@ Most integrations stop at "LLM can reach Odoo data." This project is about gover
 ## Architecture
 
 ```text
-AI Client -> MCP -> Odoo MCP Gateway -> Foggy MCP Server -> PostgreSQL
-            (Python addon)            (semantic layer + DSL engine)
+AI Client -> MCP -> Odoo (foggy_mcp addon) -> Foggy semantic engine -> PostgreSQL
 ```
 
 - **Odoo MCP Gateway** (`foggy_mcp/`): Handles MCP protocol, authentication, API keys, permission resolution, and payload slice injection
-- **Foggy MCP Server**: Semantic query engine with built-in Odoo TM/QM models
-  - Docker image: `foggysource/foggy-odoo-mcp:v8.1.8-beta`
-  - Dynamic DataSource configuration via API
+- **Embedded Foggy engine**: Semantic query engine with built-in Odoo TM/QM models, runs inside the Odoo process
 
 ## Supported Odoo Models
 

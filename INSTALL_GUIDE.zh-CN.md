@@ -17,20 +17,16 @@
 
 ## 依赖说明
 
-按使用方式区分：
-
 | 场景 | Odoo Python 环境额外依赖 |
 |---|---|
-| 仅作为独立 MCP 服务使用，不启用内置 AI Chat | 无 |
+| 仅作为 MCP 服务使用，不启用内置 AI Chat | 无 |
 | 启用内置 AI Chat，使用 OpenAI 兼容接口 | `openai` |
 | 启用内置 AI Chat，使用 Anthropic / Claude | `anthropic` |
-| 使用内嵌引擎模式 | `foggy-python` |
 
 说明：
 
-- 如果你只是把本插件作为独立 MCP 服务，供 Claude Desktop、Cursor 等外部 AI 客户端连接，则 **不需要** 安装 `openai` 或 `anthropic`
+- 如果你只是把本插件作为 MCP 服务，供 Claude Desktop、Cursor 等外部 AI 客户端连接，则 **不需要** 安装 `openai` 或 `anthropic`
 - `openai` / `anthropic` 仅在使用 Odoo 内置 **AI Chat** 功能时才需要
-- 如果使用网关模式连接外部 Foggy Java / Python 服务，Odoo 侧也不需要额外安装这两个 LLM SDK
 
 ---
 
@@ -73,35 +69,15 @@ cp -r foggy_mcp /path/to/odoo/addons/
 
 安装完成后，进入 **Settings -> Foggy MCP -> Setup Wizard**，按向导完成配置。
 
-### Step 1: 选择引擎模式
-
-| 方式 | 说明 |
-|---|---|
-| **Embedded** | 查询引擎运行在 Odoo 进程内，无需单独部署外部 Foggy 服务 |
-| **Gateway** | 将请求转发到外部 Foggy 服务，可接 Java 或 Python 引擎 |
-
-### Step 2: 服务器配置
-
-如果选择 **Gateway** 模式，向导会自动检测 Odoo 数据库连接信息并生成部署配置：
-
-- **Docker 方式**：复制生成的 `docker-compose.yml`，然后执行 `docker compose up -d`
-- **Manual 方式**：复制生成的 `java -jar` 命令并执行
-
-如果选择 **Embedded** 模式，则无需部署外部服务；只需保证 Odoo Python 环境已安装 `foggy-python`。
-
-> 模型文件已经内嵌在插件或 Foggy 引擎中，无需额外下载。
-
-### Step 3: 初始化闭包表
+### Step 1: 初始化闭包表
 
 点击 **Initialize Closure Tables**，用于支持层级查询（例如公司树、部门树）。
 
-### Step 4: 测试连接
-
-点击 **Test Connection**，验证 Foggy MCP Server 是否可以正常访问。
-
-### Step 5: 创建 API Key
+### Step 2: 创建 API Key
 
 点击 **Finish**，继续进入 API Key 页面。
+
+无需部署外部服务 — 查询引擎运行在 Odoo 进程内。
 
 ---
 

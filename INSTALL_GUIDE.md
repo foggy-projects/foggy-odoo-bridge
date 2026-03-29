@@ -17,20 +17,16 @@ Current release status:
 
 ## Dependency Notes
 
-Requirements depend on how you use the addon:
-
 | Scenario | Extra Python packages needed in the Odoo environment |
 |---|---|
-| Standalone MCP service only, without built-in AI Chat | None |
+| MCP service only (no built-in AI Chat) | None |
 | Built-in AI Chat with OpenAI-compatible providers | `openai` |
 | Built-in AI Chat with Anthropic / Claude | `anthropic` |
-| Embedded engine mode | `foggy-python` |
 
 Notes:
 
-- If you only use this addon as a standalone MCP service for Claude Desktop, Cursor, or other external AI clients, you do **not** need `openai` or `anthropic`
+- If you only use this addon as an MCP service for Claude Desktop, Cursor, or other external AI clients, you do **not** need `openai` or `anthropic`
 - `openai` / `anthropic` are only required when using the built-in **AI Chat** feature inside Odoo
-- If you use gateway mode with an external Foggy Java or Python service, the Odoo side still does not need those LLM SDKs
 
 ---
 
@@ -73,35 +69,15 @@ cp -r foggy_mcp /path/to/odoo/addons/
 
 After installation, go to **Settings -> Foggy MCP -> Setup Wizard** and follow the guided flow.
 
-### Step 1: Choose Engine Mode
-
-| Mode | Description |
-|---|---|
-| **Embedded** | The query engine runs inside the Odoo process. No external Foggy service is required |
-| **Gateway** | Requests are forwarded to an external Foggy service, which can be Java or Python |
-
-### Step 2: Server Setup
-
-If you choose **Gateway** mode, the wizard detects Odoo database settings and generates the required deployment configuration:
-
-- **Docker mode**: copy the generated `docker-compose.yml`, then run `docker compose up -d`
-- **Manual mode**: copy the generated `java -jar` command and run it
-
-If you choose **Embedded** mode, no external service is required; you only need `foggy-python` installed in the Odoo Python environment.
-
-> Model files are already bundled in the addon or the Foggy engine. No extra model download is required.
-
-### Step 3: Initialize Closure Tables
+### Step 1: Initialize Closure Tables
 
 Click **Initialize Closure Tables** to enable hierarchy-aware queries such as company trees and department trees.
 
-### Step 4: Test Connection
-
-Click **Test Connection** to verify that the Foggy MCP Server is reachable.
-
-### Step 5: Create an API Key
+### Step 2: Create an API Key
 
 Click **Finish** and continue to the API key page.
+
+No external service is required — the query engine runs inside the Odoo process.
 
 ---
 
