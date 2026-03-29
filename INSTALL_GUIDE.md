@@ -106,7 +106,23 @@ docker compose build odoo
 docker compose up -d
 ```
 
-If you are using a plain `odoo:17.0` image without the included `Dockerfile`, you can install manually (does **not** persist after container restart):
+**Alternative: modify `docker-compose.yml` directly** (no custom image build needed):
+
+```yaml
+odoo:
+  image: odoo:17.0                    # use the official image as-is
+  # ...
+  command: >
+    bash -c "pip install openai anthropic &&
+    exec odoo --database=odoo_demo
+    --addons-path=/mnt/extra-addons
+    --db_host=postgres --db_port=5432
+    --db_user=odoo --db_password=odoo"
+```
+
+This installs the packages on every container start — no need to rebuild an image.
+
+**Quick one-time install** (does **not** persist after container restart):
 
 ```bash
 docker exec foggy-odoo pip install openai anthropic

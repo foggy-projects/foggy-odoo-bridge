@@ -106,7 +106,23 @@ docker compose build odoo
 docker compose up -d
 ```
 
-如果你使用的是原始 `odoo:17.0` 镜像（未使用项目 `Dockerfile`），可以手动安装（**重启后失效**）：
+**备选方案：直接修改 `docker-compose.yml`**（无需构建自定义镜像）：
+
+```yaml
+odoo:
+  image: odoo:17.0                    # 直接使用官方镜像
+  # ...
+  command: >
+    bash -c "pip install openai anthropic &&
+    exec odoo --database=odoo_demo
+    --addons-path=/mnt/extra-addons
+    --db_host=postgres --db_port=5432
+    --db_user=odoo --db_password=odoo"
+```
+
+每次容器启动时自动安装，无需构建镜像。
+
+**快速临时安装**（**重启后失效**）：
 
 ```bash
 docker exec foggy-odoo pip install openai anthropic
