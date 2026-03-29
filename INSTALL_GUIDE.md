@@ -193,6 +193,27 @@ Security model:
 
 ---
 
+## Upgrading the Module
+
+When you update the `foggy_mcp` files (for example, after downloading a new release), **you must run the Odoo module upgrade command** — a simple container restart is not enough. Odoo caches views, field definitions, and security rules in the database; without an explicit upgrade these changes will not take effect.
+
+```bash
+# 1. Run module upgrade (adjust database name and DB host as needed)
+docker exec foggy-odoo bash -c \
+  "odoo -d <DATABASE> -u foggy_mcp --stop-after-init \
+   --db_host=<POSTGRES_CONTAINER> --db_port=5432 --db_user=odoo --db_password=odoo"
+
+# 2. Restart Odoo to pick up the upgraded registry
+docker restart foggy-odoo
+```
+
+Replace `<DATABASE>` with your Odoo database name (e.g. `odoo_demo`) and `<POSTGRES_CONTAINER>` with your PostgreSQL container name (e.g. `foggy-odoo-postgres`).
+
+> **Tip:** If you are running Odoo outside Docker, use the equivalent CLI:
+> ```bash
+> odoo -d <DATABASE> -u foggy_mcp --stop-after-init
+> ```
+
 ## Troubleshooting
 
 ### Foggy MCP Server connection failed

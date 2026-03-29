@@ -193,6 +193,27 @@ PostgreSQL (Odoo 数据库)
 
 ---
 
+## 升级模块
+
+更新 `foggy_mcp` 文件后（例如下载了新版本），**必须执行 Odoo 模块升级命令** — 仅重启容器是不够的。Odoo 会将视图、字段定义和安全规则缓存在数据库中，不显式升级这些变更不会生效。
+
+```bash
+# 1. 执行模块升级（根据实际情况替换数据库名和 PG 容器名）
+docker exec foggy-odoo bash -c \
+  "odoo -d <数据库名> -u foggy_mcp --stop-after-init \
+   --db_host=<PG容器名> --db_port=5432 --db_user=odoo --db_password=odoo"
+
+# 2. 重启 Odoo 以加载升级后的注册表
+docker restart foggy-odoo
+```
+
+将 `<数据库名>` 替换为你的 Odoo 数据库名（如 `odoo_demo`），`<PG容器名>` 替换为 PostgreSQL 容器名（如 `foggy-odoo-postgres`）。
+
+> **提示：** 如果 Odoo 未运行在 Docker 中，使用等效命令：
+> ```bash
+> odoo -d <数据库名> -u foggy_mcp --stop-after-init
+> ```
+
 ## 故障排查
 
 ### Foggy MCP Server 连接失败

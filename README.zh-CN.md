@@ -328,6 +328,19 @@ MODEL_MAPPING = {
 
 ### 4. 重启 Foggy MCP Server 以重新加载模型
 
+## 升级模块
+
+更新 `foggy_mcp` 文件后，必须执行模块升级 — 仅重启容器不够：
+
+```bash
+docker exec foggy-odoo bash -c \
+  "odoo -d <数据库名> -u foggy_mcp --stop-after-init \
+   --db_host=<PG容器名> --db_port=5432 --db_user=odoo --db_password=odoo"
+docker restart foggy-odoo
+```
+
+详见[安装指南](INSTALL_GUIDE.zh-CN.md#升级模块)。
+
 ## 配置项
 
 | 参数 | 默认值 | 说明 |

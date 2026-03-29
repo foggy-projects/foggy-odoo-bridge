@@ -325,6 +325,19 @@ MODEL_MAPPING = {
 
 ### 4. Restart Foggy MCP Server to reload models
 
+## Upgrading
+
+After updating the `foggy_mcp` files, run the module upgrade — a container restart alone is not enough:
+
+```bash
+docker exec foggy-odoo bash -c \
+  "odoo -d <DATABASE> -u foggy_mcp --stop-after-init \
+   --db_host=<POSTGRES_CONTAINER> --db_port=5432 --db_user=odoo --db_password=odoo"
+docker restart foggy-odoo
+```
+
+See the [Installation Guide](INSTALL_GUIDE.md#upgrading-the-module) for details.
+
 ## Configuration
 
 | Parameter | Default | Description |
