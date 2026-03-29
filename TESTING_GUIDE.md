@@ -126,12 +126,14 @@ curl -X POST http://localhost:8069/foggy-mcp/rpc \
 
 ### 4.3 LLM 配置（各提供商）
 
-| 提供商 | Provider | Model | 其他 |
-|--------|----------|-------|------|
-| OpenAI | `OpenAI` | `gpt-4o-mini` 或 `gpt-4o` | |
-| DeepSeek | `DeepSeek` | `deepseek-chat` | |
-| Ollama | `Ollama（本地）` | `llama3` / `qwen2.5` | Base URL: `http://host.docker.internal:11434/v1` |
-| 自定义 | `自定义（OpenAI 兼容）` | 按提供商填 | 填写 Base URL |
+| 场景 | Provider | Model | Base URL |
+|------|----------|-------|----------|
+| OpenAI 官方 | `OpenAI 兼容` | `gpt-4o-mini` 或 `gpt-4o` | 留空 |
+| DeepSeek | `OpenAI 兼容` | `deepseek-chat` | `https://api.deepseek.com` |
+| Ollama 本地 | `OpenAI 兼容` | `llama3` / `qwen2.5` | `http://host.docker.internal:11434/v1` |
+| Anthropic | `Anthropic (Claude)` | `claude-3-5-sonnet-20241022` | 留空 |
+
+> **Note**: AI Chat 需要安装对应的 Python SDK：`pip install openai`（OpenAI 兼容）或 `pip install anthropic`（Anthropic）。MCP 查询功能不需要这些包。
 
 ### 4.4 对话测试
 

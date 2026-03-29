@@ -22,20 +22,18 @@ _logger = logging.getLogger(__name__)
 class ResConfigSettings(models.TransientModel):
     _inherit = 'res.config.settings'
 
-    # ── 引擎模式 ──────────────────────────────────────
-
     foggy_engine_mode = fields.Selection([
-        ('embedded', '内嵌模式（推荐）'),
-        ('gateway', '网关模式'),
-    ], string='引擎模式',
+        ('embedded', 'Embedded (Recommended)'),
+        ('gateway', 'Gateway'),
+    ], string='Engine Mode',
         config_parameter='foggy_mcp.engine_mode',
         default='embedded',
-        help='内嵌模式：Python 引擎在 Odoo 进程内运行，零外部依赖。\n'
-             '网关模式：通过 HTTP 转发到外部 Foggy 服务器。',
+        help='Embedded mode runs the Python query engine inside the Odoo process.\n'
+             'Gateway mode forwards requests to an external Foggy server over HTTP.',
     )
 
     foggy_embedded_available = fields.Boolean(
-        string='内嵌引擎可用',
+        string='Embedded Engine Available',
         compute='_compute_embedded_available',
     )
 
@@ -48,92 +46,90 @@ class ResConfigSettings(models.TransientModel):
             except ImportError:
                 rec.foggy_embedded_available = False
 
-    # ── Foggy MCP 服务器连接 ──────────────────────────
-
     foggy_mcp_url = fields.Char(
-        string='Foggy MCP 服务地址',
+        string='Foggy MCP Server URL',
         config_parameter='foggy_mcp.server_url',
-        help='Foggy MCP 服务器的基础地址（例如：http://foggy-mcp:8080）',
+        help='Base URL of the Foggy MCP Server (for example: http://foggy-mcp:8080).',
     )
     foggy_mcp_endpoint = fields.Char(
-        string='MCP 端点路径',
+        string='MCP Endpoint Path',
         config_parameter='foggy_mcp.endpoint_path',
         default='/mcp/analyst/rpc',
-        help='Foggy 服务器上的 MCP JSON-RPC 端点路径',
+        help='MCP JSON-RPC endpoint path on the Foggy server.',
     )
     foggy_mcp_timeout = fields.Integer(
-        string='请求超时（秒）',
+        string='Request Timeout (seconds)',
         config_parameter='foggy_mcp.request_timeout',
         default=30,
-        help='调用 Foggy MCP 服务器的 HTTP 请求超时时间',
+        help='HTTP request timeout when calling the Foggy MCP Server.',
     )
     foggy_mcp_namespace = fields.Char(
-        string='命名空间',
+        string='Namespace',
         config_parameter='foggy_mcp.namespace',
         default='odoo',
-        help='Odoo 模型在 Foggy 中的命名空间（X-NS header 值）',
+        help='Namespace for Odoo models in Foggy (X-NS header value).',
     )
     foggy_mcp_cache_ttl = fields.Integer(
-        string='工具缓存时间（秒）',
+        string='Tool Cache TTL (seconds)',
         config_parameter='foggy_mcp.cache_ttl',
         default=300,
-        help='缓存 Foggy tools/list 响应的时长',
+        help='How long to cache the Foggy tools/list response.',
     )
     foggy_mcp_auth_token = fields.Char(
-        string='认证令牌',
+        string='Auth Token',
         config_parameter='foggy_mcp.auth_token',
-        help='用于 Foggy MCP 服务器认证的 Bearer token。服务器未启用认证时留空。',
+        help='Bearer token used to authenticate with the Foggy MCP Server. Leave empty if server-side auth is disabled.',
     )
-
-    # ── AI 对话（LLM）设置 ──────────────────────────
 
     foggy_llm_provider = fields.Selection([
-        ('openai', 'OpenAI'),
+        ('openai', 'OpenAI-compatible (OpenAI / DeepSeek / Ollama / vLLM / more)'),
         ('anthropic', 'Anthropic (Claude)'),
-        ('deepseek', 'DeepSeek'),
-        ('ollama', 'Ollama（本地）'),
-        ('custom', '自定义（OpenAI 兼容）'),
-    ], string='LLM 提供商',
+    ], string='LLM Provider',
         config_parameter='foggy_mcp.llm_provider',
         default='openai',
-        help='内置对话功能的 AI 模型提供商。',
+        help='AI model provider for the built-in chat feature.\n'
+             'OpenAI-compatible covers providers that expose an OpenAI-style API, including OpenAI, DeepSeek, Ollama, and vLLM.\n'
+             'Anthropic uses the native Claude API.',
     )
     foggy_llm_api_key = fields.Char(
-        string='LLM API 密钥',
+        string='LLM API Key',
         config_parameter='foggy_mcp.llm_api_key',
-        help='LLM 提供商的 API 密钥（Ollama 无需填写）。',
+        help='API key for the selected LLM provider. Not required for Ollama.',
     )
     foggy_llm_model = fields.Char(
-        string='模型名称',
+        string='Model Name',
         config_parameter='foggy_mcp.llm_model',
         default='gpt-4o-mini',
-        help='模型标识符（如 gpt-4o、claude-3-5-sonnet-20241022、deepseek-chat、llama3）。',
+        help='Model identifier.\n'
+             'OpenAI-compatible examples: gpt-4o, gpt-4o-mini, deepseek-chat, llama3.\n'
+             'Anthropic examples: claude-3-5-sonnet-20241022, claude-3-haiku-20240307.',
     )
     foggy_llm_base_url = fields.Char(
-        string='API 基础地址',
+        string='API Base URL',
         config_parameter='foggy_mcp.llm_base_url',
-        help='自定义 API 端点。Ollama（http://localhost:11434/v1）和自定义提供商必填。',
+        help='Optional custom API endpoint.\n'
+             'DeepSeek example: https://api.deepseek.com\n'
+             'Ollama example: http://localhost:11434/v1\n'
+             'Leave empty for the official OpenAI API.',
     )
     foggy_llm_temperature = fields.Float(
-        string='温度',
+        string='Temperature',
         config_parameter='foggy_mcp.llm_temperature',
         default=0.3,
-        help='控制随机性。值越低越精确，值越高越有创造性。（0.0 - 1.0）',
+        help='Controls randomness. Lower values are more deterministic; higher values are more creative. (0.0 - 1.0)',
     )
     foggy_llm_custom_prompt = fields.Char(
-        string='业务上下文 & 自定义规则',
+        string='Business Context & Custom Rules',
         config_parameter='foggy_mcp.llm_custom_prompt',
-        help='注入 AI 系统提示的自定义内容。可添加：\n'
-             '- 业务术语定义（如"大客户 = 年销售额 > 50 万"）\n'
-             '- 额外的回答规则（如"数据展示时隐藏员工手机号"）\n'
-             '- 公司特定上下文（如"财年从 4 月开始"）\n\n'
-             '注意：核心安全规则（禁止编造数据）始终生效，不可覆盖。',
+        help='Custom content injected into the AI system prompt. You can add:\n'
+             '- Business term definitions (for example: "Enterprise account = annual revenue above 500k")\n'
+             '- Extra answer rules (for example: "Hide employee mobile numbers in responses")\n'
+             '- Company-specific context (for example: "Fiscal year starts in April")\n\n'
+             'Core safety rules still apply and cannot be overridden.',
     )
 
-    # ── 连接测试 ─────────────────────────────────────
-
     foggy_connection_status = fields.Text(
-        string='连接状态',
+        string='Connection Status',
         readonly=True,
     )
 
@@ -156,11 +152,11 @@ class ResConfigSettings(models.TransientModel):
             if 'column' in error_msg.lower() and 'does not exist' in error_msg.lower():
                 _logger.error("Schema error when saving settings: %s", error_msg)
                 raise UserError(_(
-                    "无法保存设置，模块需要升级。\n\n"
-                    "请运行以下命令：\n"
+                    "Unable to save settings because the module schema is outdated.\n\n"
+                    "Run the following command:\n"
                     "    docker exec <odoo_container> odoo -u foggy_mcp -d <database> --stop-after-init\n\n"
-                    "然后重启 Odoo 并重试。\n\n"
-                    "技术详情：%s"
+                    "Then restart Odoo and try again.\n\n"
+                    "Technical details: %s"
                 ) % error_msg)
 
             # Re-raise other errors as-is
@@ -176,9 +172,9 @@ class ResConfigSettings(models.TransientModel):
             'type': 'ir.actions.client',
             'tag': 'display_notification',
             'params': {
-                'title': _('需要升级模块'),
+                'title': _('Module upgrade required'),
                 'message': _(
-                    '请运行：docker exec <odoo_container> odoo -u foggy_mcp -d <database> --stop-after-init'
+                    'Run: docker exec <odoo_container> odoo -u foggy_mcp -d <database> --stop-after-init'
                 ),
                 'type': 'warning',
                 'sticky': True,
@@ -186,13 +182,13 @@ class ResConfigSettings(models.TransientModel):
         }
 
     def set_values(self):
-        """保存设置时，如果引擎模式发生变更则重置单例。"""
+        """Reset engine singletons if the configured engine mode changes."""
         ICP = self.env['ir.config_parameter'].sudo()
         old_mode = ICP.get_param('foggy_mcp.engine_mode', 'embedded')
         res = super().set_values()
         new_mode = ICP.get_param('foggy_mcp.engine_mode', 'embedded')
         if old_mode != new_mode:
-            _logger.info("引擎模式已变更：%s → %s，重置单例", old_mode, new_mode)
+            _logger.info("Engine mode changed: %s -> %s; resetting singletons", old_mode, new_mode)
             from ..controllers.mcp_controller import _reset_singletons
             _reset_singletons()
         return res
@@ -240,10 +236,10 @@ class ResConfigSettings(models.TransientModel):
                         if 'result' in result:
                             server_info = result['result'].get('serverInfo', {})
                             status_msg = _(
-                                "✅ 连接成功！\n\n"
-                                "服务器：%(name)s v%(version)s\n"
-                                "协议版本：%(protocol)s\n"
-                                "地址：%(url)s"
+                                "Connection successful.\n\n"
+                                "Server: %(name)s v%(version)s\n"
+                                "Protocol version: %(protocol)s\n"
+                                "URL: %(url)s"
                             ) % {
                                 'name': server_info.get('name', 'Foggy MCP'),
                                 'version': server_info.get('version', 'unknown'),
@@ -252,19 +248,19 @@ class ResConfigSettings(models.TransientModel):
                             }
                         else:
                             status_msg = _(
-                                "⚠️ 服务器已响应，但 MCP 初始化失败。\n\n"
-                                "响应：%(response)s"
+                                "Server responded, but MCP initialization failed.\n\n"
+                                "Response: %(response)s"
                             ) % {'response': r_mcp.text[:200]}
                     elif r_mcp.status_code == 401:
                         status_msg = _(
-                            "❌ 认证失败。\n\n"
-                            "服务器需要有效的认证令牌。\n"
-                            "请检查认证令牌设置。"
+                            "Authentication failed.\n\n"
+                            "The server requires a valid auth token.\n"
+                            "Check the auth token setting."
                         )
                     else:
                         status_msg = _(
-                            "❌ MCP 端点返回 HTTP %(status)d。\n\n"
-                            "响应：%(response)s"
+                            "MCP endpoint returned HTTP %(status)d.\n\n"
+                            "Response: %(response)s"
                         ) % {'status': r_mcp.status_code, 'response': r_mcp.text[:200]}
                 else:
                     status_msg = self._build_error_guidance(
@@ -280,8 +276,8 @@ class ResConfigSettings(models.TransientModel):
 
         except ImportError:
             status_msg = _(
-                "❌ 缺少必要的库。\n\n"
-                "请安装：pip install requests"
+                "Missing required library.\n\n"
+                "Install it with: pip install requests"
             )
 
         # Show result in a modal dialog with the status message
@@ -312,43 +308,43 @@ class ResConfigSettings(models.TransientModel):
         in_docker = os.path.exists('/.dockerenv')
 
         guidance_lines = [
-            _("❌ 无法连接到 Foggy MCP 服务器"),
+            _("Unable to connect to the Foggy MCP Server."),
             "",
-            _("地址：%(url)s") % {'url': url},
-            _("错误：%(error)s") % {'error': error_detail},
+            _("URL: %(url)s") % {'url': url},
+            _("Error: %(error)s") % {'error': error_detail},
             "",
             "═══════════════════════════════════════",
-            _("排查步骤："),
+            _("Troubleshooting steps:"),
             "",
-            _("1. 检查 Foggy MCP 容器是否运行中："),
+            _("1. Check whether the Foggy MCP container is running:"),
             "   docker ps | grep foggy-mcp",
             "",
-            _("2. 查看容器日志是否有错误："),
+            _("2. Inspect the container logs for errors:"),
             "   docker logs foggy-mcp",
             "",
         ]
 
         if in_docker:
             guidance_lines.extend([
-                _("3. Odoo 和 Foggy 均在 Docker 中："),
-                _("   • 确保它们在同一网络中：docker network ls"),
-                _("   • 尝试使用地址：http://foggy-mcp:8080"),
+                _("3. If both Odoo and Foggy run in Docker:"),
+                _("   - Make sure they share the same network: docker network ls"),
+                _("   - Try using: http://foggy-mcp:8080"),
                 "",
-                _("4. 或使用 Odoo 的容器网络："),
+                _("4. Or attach Foggy to the Odoo container network:"),
                 "   docker run --network container:odoo ...",
             ])
         else:
             guidance_lines.extend([
-                _("3. 检查端口是否可访问："),
+                _("3. Check whether the port is reachable:"),
                 f"   curl http://localhost:8080/actuator/health",
                 "",
-                _("4. 如果运行在 Docker 中，检查端口映射："),
+                _("4. If Foggy runs in Docker, inspect port mapping:"),
                 "   docker port foggy-mcp",
             ])
 
         guidance_lines.extend([
             "",
-            _("5. 确认认证令牌与服务器配置一致。"),
+            _("5. Confirm that the auth token matches the server configuration."),
         ])
 
         return '\n'.join(guidance_lines)

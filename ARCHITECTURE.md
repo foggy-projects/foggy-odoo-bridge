@@ -203,17 +203,14 @@ ir.rule.domain_force (波兰表达式)
 
 **职责**: 内置 AI 聊天功能，直接在 Odoo 中与数据对话
 
-**支持的 LLM 提供商** (via litellm):
-- OpenAI (gpt-4o, gpt-4o-mini)
-- Anthropic (claude-3.5-sonnet, claude-3-haiku)
-- DeepSeek
-- Ollama (本地部署)
-- Azure / Groq / Together 等
+**支持的 LLM 提供商** (直连 SDK，无 litellm 依赖):
+- OpenAI 兼容（OpenAI / DeepSeek / Ollama / vLLM 等） — 通过 `openai` SDK
+- Anthropic (Claude) — 通过 `anthropic` SDK
 
 **流程**:
 ```
 用户消息 → 构建系统提示（可用模型列表）
-         → 调用 LLM (litellm)
+         → 调用 LLM (openai/anthropic SDK)
          → LLM 返回 tool_use → 执行 Foggy 工具（含权限注入）
          → 工具结果返回 LLM
          → 最终回复
@@ -371,7 +368,8 @@ MODEL_MAPPING['my.custom.model'] = 'MyCustomQueryModel'
 - `crm`
 
 ### Python 包
-- `litellm` - LLM 集成 (可选，用于内置聊天)
+- `openai` - OpenAI 兼容 LLM 调用 (可选，用于 AI Chat)
+- `anthropic` - Anthropic Claude 调用 (可选，用于 AI Chat)
 - `requests` - HTTP 客户端
 
 ---

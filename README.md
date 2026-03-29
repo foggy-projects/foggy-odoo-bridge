@@ -1,18 +1,22 @@
 # Foggy Odoo Bridge
 
-Let Claude, Cursor, and other MCP clients query Odoo data safely, while preserving Odoo permission rules.
+[English](./README.md) | [简体中文](./README.zh-CN.md)
 
-## Why This Exists
+Governed MCP access to Odoo data with Odoo permission preservation, built-in AI chat, and embedded or external Foggy engines.
 
-Most "AI + ERP" demos fall apart on the same problem: the model can describe the question, but the system cannot safely preserve business permissions once it starts generating raw SQL.
-
-Foggy Odoo Bridge solves that by placing an Odoo-aware permission and model layer in front of the query engine:
+Foggy Odoo Bridge is an Odoo addon that lets Claude, Cursor, built-in Odoo AI Chat, and other MCP clients query Odoo business data without bypassing Odoo permissions.
 
 ```text
 AI client -> MCP -> Odoo bridge -> Foggy semantic layer -> SQL -> PostgreSQL
 ```
 
-Instead of letting the model invent SQL:
+Instead of letting an LLM invent raw SQL against your ERP database, the addon keeps authentication, model visibility, and row-level rules inside Odoo before the query reaches the Foggy engine.
+
+## Why It Matters
+
+Most "AI + ERP" demos can answer a question, but they cannot safely preserve business permissions once the model starts generating SQL.
+
+Foggy Odoo Bridge solves that by placing an Odoo-aware permission and model layer in front of query execution:
 
 - Odoo authentication stays in Odoo
 - `ir.model.access` gates available query models
@@ -20,47 +24,51 @@ Instead of letting the model invent SQL:
 - multi-company boundaries stay enforced server-side
 - the downstream engine receives governed semantic queries
 
-## What You Get
+## What You Get First
 
 - Natural language analytics for Odoo through MCP
 - Odoo-aware permission injection before query execution
 - API key access for Claude Desktop and Cursor
+- Built-in AI Chat inside Odoo
 - Built-in TM/QM models for common Odoo business objects
+- Embedded Python engine or external Foggy service deployment
 - Fail-closed behavior when permission evaluation fails
-- A practical first scenario for enterprise AI data access
+- A practical governed AI data layer for Odoo
 
-## Best First Use Cases
+## Deployment Modes
 
-- Sales analysis
-- Purchase analysis
-- Invoice and billing lookups
-- Inventory transfer reporting
-- Employee directory queries
-- Partner and customer exploration
+- **Embedded Python engine**: runs inside the Odoo process
+- **External Python engine**: route requests to a separate Foggy Python service
+- **External Java engine**: route requests to a separate Foggy Java service
 
-## Architecture
+Choose embedded mode when you want the fastest path to a working demo or smaller self-hosted deployment. Choose external Python or Java mode when you want to isolate the query engine from Odoo.
 
-```text
-AI Client -> MCP -> Odoo MCP Gateway -> Foggy MCP Server -> PostgreSQL
-            (Python addon)            (semantic layer + DSL engine)
-```
+## Dependency Notes
 
-- **Odoo MCP Gateway** (`foggy_mcp/`): Handles MCP protocol, authentication, API keys, permission resolution, and payload slice injection
-- **Foggy MCP Server**: Semantic query engine with built-in Odoo TM/QM models
-  - Docker image: `foggysource/foggy-odoo-mcp:v8.1.8-beta`
-  - Dynamic DataSource configuration via API
+Dependency requirements depend on how you use the addon:
 
-## Supported Odoo Models
+| Scenario | Extra Python packages needed in the Odoo environment |
+|---|---|
+| Standalone MCP gateway only (no built-in AI Chat) | None |
+| Built-in AI Chat with OpenAI-compatible providers | `openai` |
+| Built-in AI Chat with Anthropic / Claude | `anthropic` |
+| Embedded engine mode | `foggy-python` |
 
-| Odoo Model | QM Name | Description |
-|---|---|---|
-| `sale.order` | OdooSaleOrderQueryModel | Sales analysis |
-| `sale.order.line` | OdooSaleOrderLineQueryModel | Sales line details |
-| `purchase.order` | OdooPurchaseOrderQueryModel | Purchase analysis |
-| `account.move` | OdooAccountMoveQueryModel | Invoice & billing |
-| `stock.picking` | OdooStockPickingQueryModel | Inventory transfers |
-| `hr.employee` | OdooHrEmployeeQueryModel | Employee directory |
-| `res.partner` | OdooResPartnerQueryModel | Partner directory |
+Notes:
+
+- If you use this addon only as an MCP service for Claude Desktop, Cursor, or other MCP clients, you do **not** need `openai` or `anthropic` in the Odoo environment.
+- `openai` / `anthropic` are only optional SDK dependencies for the built-in AI Chat feature.
+- If you choose gateway mode with an external Java or Python Foggy service, the Odoo addon itself does not require those LLM SDK packages.
+
+## Database Support
+
+Current release scope for this Odoo bridge:
+
+- PostgreSQL is the only validated database for the addon today
+- MySQL is not an officially supported database target in the current release
+- If MySQL support is exposed later, it should be treated as a `v1.1` target after dedicated validation
+
+This matches the current wizard flow, SQL assets, test coverage, and verified deployment environment, all of which are centered on Odoo with PostgreSQL.
 
 ## Quick Start
 
@@ -90,6 +98,14 @@ docker run -d \
 ```
 
 Then use the Setup Wizard to configure the data source.
+
+### Built-in AI Chat Dependencies
+
+The built-in AI Chat feature is optional.
+
+- For OpenAI-compatible providers: `pip install openai`
+- For Anthropic / Claude: `pip install anthropic`
+- If you do not use AI Chat, you can skip both packages entirely
 
 ### Generate an API Key
 
@@ -121,6 +137,15 @@ Now you can ask questions like:
 - "Show inventory transfers by warehouse this week"
 - "Which invoices are still unpaid?"
 
+## Best First Use Cases
+
+- Sales analysis
+- Purchase analysis
+- Invoice and billing lookups
+- Inventory transfer reporting
+- Employee directory queries
+- Partner and customer exploration
+
 ## Why This Is Different
 
 Most integrations stop at "LLM can reach Odoo data." This project is about governed access, not just connectivity.
@@ -129,6 +154,30 @@ Most integrations stop at "LLM can reach Odoo data." This project is about gover
 - It maps ERP models into business-friendly semantic query models.
 - It keeps the AI client away from raw SQL and direct schema prompting.
 - It is designed for real internal deployments, not just demos.
+
+## Architecture
+
+```text
+AI Client -> MCP -> Odoo MCP Gateway -> Foggy MCP Server -> PostgreSQL
+            (Python addon)            (semantic layer + DSL engine)
+```
+
+- **Odoo MCP Gateway** (`foggy_mcp/`): Handles MCP protocol, authentication, API keys, permission resolution, and payload slice injection
+- **Foggy MCP Server**: Semantic query engine with built-in Odoo TM/QM models
+  - Docker image: `foggysource/foggy-odoo-mcp:v8.1.8-beta`
+  - Dynamic DataSource configuration via API
+
+## Supported Odoo Models
+
+| Odoo Model | QM Name | Description |
+|---|---|---|
+| `sale.order` | OdooSaleOrderQueryModel | Sales analysis |
+| `sale.order.line` | OdooSaleOrderLineQueryModel | Sales line details |
+| `purchase.order` | OdooPurchaseOrderQueryModel | Purchase analysis |
+| `account.move` | OdooAccountMoveQueryModel | Invoice & billing |
+| `stock.picking` | OdooStockPickingQueryModel | Inventory transfers |
+| `hr.employee` | OdooHrEmployeeQueryModel | Employee directory |
+| `res.partner` | OdooResPartnerQueryModel | Partner directory |
 
 ## Key Features
 

@@ -5,12 +5,12 @@
         <field name="name">foggy.connection.test.result.view.form</field>
         <field name="model">foggy.connection.test.result</field>
         <field name="arch" type="xml">
-            <form string="连接测试结果">
+            <form string="Connection Test Result">
                 <group>
                     <field name="status_message" nolabel="1" colspan="2"/>
                 </group>
                 <footer>
-                    <button string="关闭" class="btn-secondary" special="cancel"/>
+                    <button string="Close" class="btn-secondary" special="cancel"/>
                 </footer>
             </form>
         </field>

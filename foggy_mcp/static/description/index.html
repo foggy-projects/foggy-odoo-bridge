@@ -18,6 +18,14 @@
         AI assistants can query your Sales Orders, Purchase Orders, Invoices, Stock Pickings,
         HR Employees, Partners, and Companies — all while respecting Odoo's native permission system.
       </p>
+      <p>
+        Used as a standalone MCP gateway, this addon does not require `openai` or `anthropic`.
+        Those SDKs are only optional dependencies for the built-in AI Chat feature.
+      </p>
+      <p>
+        Database support for this release is currently scoped to <strong>PostgreSQL</strong>.
+        MySQL is not yet an officially supported target for this Odoo bridge release and is better treated as a future <strong>v1.1</strong> milestone after dedicated validation.
+      </p>
     </div>
   </div>
 </section>
@@ -39,7 +47,7 @@ AI Client (Claude, Cursor, etc.)
         | HTTP (internal network)
         v
 +-------------------+
-| Foggy MCP Server  |  &lt;-- Self-hosted Java service
+| Foggy Engine      |  &lt;-- Embedded Python or external Java/Python service
 | (Query Engine)    |
 +-------------------+
         |
@@ -240,10 +248,13 @@ AI Client (Claude, Cursor, etc.)
     <div class="oe_span12">
       <ul style="font-size:15px; line-height:2;">
         <li><strong>Odoo 17</strong> Community or Enterprise</li>
-        <li><strong>Foggy MCP Server</strong> (Java 17+, self-hosted) &mdash;
+        <li><strong>Foggy Engine</strong> &mdash; embedded Python engine, or external Foggy Java / Python service</li>
+        <li><strong>External Foggy Java server</strong> (optional, Java 17+) &mdash;
             <a href="https://github.com/nicholasgasior/foggy-data-mcp-bridge" target="_blank">Download</a></li>
-        <li><strong>PostgreSQL 12+</strong> (shared with Odoo)</li>
-        <li>No additional Python dependencies required</li>
+        <li><strong>PostgreSQL 12+</strong> (shared with Odoo, current validated database target)</li>
+        <li><strong>MySQL</strong> is not yet an officially supported database target for this release</li>
+        <li>No `openai` / `anthropic` dependency is required for standalone MCP usage</li>
+        <li>Built-in AI Chat optionally requires `openai` and/or `anthropic`</li>
       </ul>
     </div>
   </div>

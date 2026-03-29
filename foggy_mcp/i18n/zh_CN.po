@@ -107,28 +107,13 @@ msgstr "嵌入式对话功能的 AI 模型提供商。"
 
 #. module: foggy_mcp
 #: selection:res.config.settings,foggy_llm_provider:0
-msgid "OpenAI"
-msgstr "OpenAI"
+msgid "OpenAI-compatible (OpenAI / DeepSeek / Ollama / vLLM / more)"
+msgstr "OpenAI 兼容（OpenAI / DeepSeek / Ollama / vLLM 等）"
 
 #. module: foggy_mcp
 #: selection:res.config.settings,foggy_llm_provider:0
 msgid "Anthropic (Claude)"
 msgstr "Anthropic (Claude)"
-
-#. module: foggy_mcp
-#: selection:res.config.settings,foggy_llm_provider:0
-msgid "DeepSeek"
-msgstr "DeepSeek"
-
-#. module: foggy_mcp
-#: selection:res.config.settings,foggy_llm_provider:0
-msgid "Ollama (Local)"
-msgstr "Ollama（本地）"
-
-#. module: foggy_mcp
-#: selection:res.config.settings,foggy_llm_provider:0
-msgid "Custom (OpenAI-compatible)"
-msgstr "自定义（OpenAI 兼容）"
 
 #. module: foggy_mcp
 #: model:ir.model.fields,field_description:foggy_mcp.field_res_config_settings__foggy_llm_api_key
@@ -137,8 +122,8 @@ msgstr "LLM API 密钥"
 
 #. module: foggy_mcp
 #: model:ir.model.fields,help:foggy_mcp.field_res_config_settings__foggy_llm_api_key
-msgid "API key for the LLM provider (not needed for Ollama)."
-msgstr "LLM 提供商的 API 密钥（Ollama 不需要）。"
+msgid "API key for the selected LLM provider. Not required for Ollama."
+msgstr "所选 LLM 提供商的 API 密钥（Ollama 不需要）。"
 
 #. module: foggy_mcp
 #: model:ir.model.fields,field_description:foggy_mcp.field_res_config_settings__foggy_llm_model
@@ -157,8 +142,8 @@ msgstr "API 基础地址"
 
 #. module: foggy_mcp
 #: model:ir.model.fields,help:foggy_mcp.field_res_config_settings__foggy_llm_base_url
-msgid "Custom API endpoint. Required for Ollama (http://localhost:11434/v1) and custom providers."
-msgstr "自定义 API 端点。Ollama（http://localhost:11434/v1）和自定义提供商需要填写。"
+msgid "Optional custom API endpoint.\nDeepSeek example: https://api.deepseek.com\nOllama example: http://localhost:11434/v1\nLeave empty for the official OpenAI API."
+msgstr "自定义 API 端点（可选）。\nDeepSeek：https://api.deepseek.com\nOllama：http://localhost:11434/v1\n使用 OpenAI 官方 API 时留空。"
 
 #. module: foggy_mcp
 #: model:ir.model.fields,field_description:foggy_mcp.field_res_config_settings__foggy_llm_temperature
@@ -292,8 +277,8 @@ msgstr "模型标识符（例如：gpt-4o-mini、claude-3-5-sonnet、deepseek-ch
 
 #. module: foggy_mcp
 #: model_terms:ir.ui.view,arch:foggy_mcp.res_config_settings_view_form_foggy
-msgid "Custom endpoint URL (required for Ollama and custom providers)"
-msgstr "自定义端点地址（Ollama 和自定义提供商需要）"
+msgid "Custom endpoint URL for non-default providers such as DeepSeek or Ollama"
+msgstr "用于 DeepSeek、Ollama 等非默认提供商的自定义端点 URL"
 
 #. module: foggy_mcp
 #: model_terms:ir.ui.view,arch:foggy_mcp.res_config_settings_view_form_foggy
@@ -998,8 +983,8 @@ msgstr "模型标识符（例如：gpt-4o-mini、claude-3-5-sonnet、deepseek-ch
 
 #. module: foggy_mcp
 #: model_terms:ir.ui.view,arch:foggy_mcp.res_config_settings_view_form_foggy
-msgid "Custom endpoint URL (required for Ollama and custom providers)"
-msgstr "自定义端点地址（Ollama 和自定义提供商需要）"
+msgid "Custom endpoint URL for non-default providers such as DeepSeek or Ollama"
+msgstr "用于 DeepSeek、Ollama 等非默认提供商的自定义端点 URL"
 
 #. module: foggy_mcp
 #: model_terms:ir.ui.view,arch:foggy_mcp.res_config_settings_view_form_foggy
@@ -1475,3 +1460,443 @@ msgstr "🎯 CRM 销售漏斗概览"
 #: model_terms:ir.ui.view,arch:foggy_mcp.foggy_chat
 msgid "Press Enter to send, Shift+Enter for new line"
 msgstr "按 Enter 发送，Shift+Enter 换行"
+
+#. module: foggy_mcp
+msgid "Engine Mode"
+msgstr "引擎模式"
+
+#. module: foggy_mcp
+msgid "Embedded (Recommended)"
+msgstr "内嵌模式（推荐）"
+
+#. module: foggy_mcp
+msgid "Gateway"
+msgstr "网关模式"
+
+#. module: foggy_mcp
+msgid "Embedded Engine Available"
+msgstr "内嵌引擎可用"
+
+#. module: foggy_mcp
+msgid "Embedded mode runs the Python query engine inside the Odoo process.\nGateway mode forwards requests to an external Foggy server over HTTP."
+msgstr "内嵌模式：Python 查询引擎在 Odoo 进程内运行。\n网关模式：通过 HTTP 将请求转发到外部 Foggy 服务器。"
+
+#. module: foggy_mcp
+msgid "OpenAI-compatible (OpenAI / DeepSeek / Ollama / vLLM / more)"
+msgstr "OpenAI 兼容（OpenAI / DeepSeek / Ollama / vLLM 等）"
+
+#. module: foggy_mcp
+msgid "Business Context & Custom Rules"
+msgstr "业务上下文与自定义规则"
+
+#. module: foggy_mcp
+msgid "AI Chat (LLM Settings)"
+msgstr "AI 对话（LLM 设置）"
+
+#. module: foggy_mcp
+msgid "Select the model provider used by the built-in AI chat feature"
+msgstr "选择内置 AI 对话功能使用的模型提供商"
+
+#. module: foggy_mcp
+msgid "API key for the selected LLM provider"
+msgstr "所选 LLM 提供商的 API 密钥"
+
+#. module: foggy_mcp
+msgid "Model identifier, for example gpt-4o-mini, claude-3-5-sonnet-20241022, or deepseek-chat"
+msgstr "模型标识符，例如 gpt-4o-mini、claude-3-5-sonnet-20241022 或 deepseek-chat"
+
+#. module: foggy_mcp
+msgid "Custom endpoint URL for non-default providers such as DeepSeek or Ollama"
+msgstr "用于 DeepSeek、Ollama 等非默认提供商的自定义端点 URL"
+
+#. module: foggy_mcp
+msgid "Controls randomness (0.0 = deterministic, 1.0 = creative)"
+msgstr "控制随机性（0.0 = 更确定，1.0 = 更有创造性）"
+
+#. module: foggy_mcp
+msgid "Custom instructions injected into every AI chat. Use this for business terms, KPIs, and answer rules. Core safety rules still apply."
+msgstr "注入到每次 AI 对话中的自定义指令，可用于业务术语、KPI 和回答规则。核心安全规则依然生效。"
+
+#. module: foggy_mcp
+msgid "Embedded mode:"
+msgstr "内嵌模式："
+
+#. module: foggy_mcp
+msgid "the query engine runs inside the Odoo process. No external server is required."
+msgstr "查询引擎运行在 Odoo 进程内，无需外部服务器。"
+
+#. module: foggy_mcp
+msgid "`foggy-python` is not installed."
+msgstr "`foggy-python` 未安装。"
+
+#. module: foggy_mcp
+msgid "Install it in the Odoo Python environment:"
+msgstr "请在 Odoo 的 Python 环境中安装："
+
+#. module: foggy_mcp
+msgid "Guided setup for engine configuration, closure-table initialization, and connection checks. Save your current settings before launching it."
+msgstr "通过向导完成引擎配置、闭包表初始化和连接检查。启动前请先保存当前设置。"
+
+#. module: foggy_mcp
+msgid "Launching the wizard will save the current settings first."
+msgstr "启动向导前会先保存当前设置。"
+
+#. module: foggy_mcp
+msgid "Choose Engine Mode"
+msgstr "选择引擎模式"
+
+#. module: foggy_mcp
+msgid "You will need:"
+msgstr "你需要准备："
+
+#. module: foggy_mcp
+msgid "Docker installed on the target server"
+msgstr "目标服务器已安装 Docker"
+
+#. module: foggy_mcp
+msgid "Terminal access"
+msgstr "可访问终端"
+
+#. module: foggy_mcp
+msgid "About 2 minutes"
+msgstr "约 2 分钟"
+
+#. module: foggy_mcp
+msgid "Embedded mode is ready"
+msgstr "内嵌模式已就绪"
+
+#. module: foggy_mcp
+msgid "The query engine will run inside the Odoo process. No external service is required.\nClick \"Next\" to continue."
+msgstr "查询引擎将在 Odoo 进程内运行，无需部署外部服务。\n点击“下一步”继续。"
+
+#. module: foggy_mcp
+msgid "Engine Status"
+msgstr "引擎状态"
+
+#. module: foggy_mcp
+msgid "Deploy Foggy MCP Server"
+msgstr "部署 Foggy MCP 服务"
+
+#. module: foggy_mcp
+msgid "The wizard detected database settings from Odoo. Adjust them if needed, then run the command below in your terminal."
+msgstr "向导已从 Odoo 检测到数据库配置。如有需要请先调整，然后在终端中运行下方命令。"
+
+#. module: foggy_mcp
+msgid "Docker network detected:"
+msgstr "已检测到 Docker 网络："
+
+#. module: foggy_mcp
+msgid "Foggy MCP will join the same network automatically for seamless connectivity."
+msgstr "Foggy MCP 将自动加入同一网络，实现无缝通信。"
+
+#. module: foggy_mcp
+msgid "Docker environment detected (socket not mounted)"
+msgstr "检测到 Docker 环境（未挂载 Socket）"
+
+#. module: foggy_mcp
+msgid "The generated command includes a placeholder network name that you must replace manually."
+msgstr "生成的命令包含网络占位符，需要你手动替换。"
+
+#. module: foggy_mcp
+msgid "Connection Mode"
+msgstr "连接模式"
+
+#. module: foggy_mcp
+msgid "Docker Network (Recommended)"
+msgstr "Docker 网络（推荐）"
+
+#. module: foggy_mcp
+msgid "Direct IP Connection"
+msgstr "直接 IP 连接"
+
+#. module: foggy_mcp
+msgid "Docker Network Settings"
+msgstr "Docker 网络设置"
+
+#. module: foggy_mcp
+msgid "How it works:"
+msgstr "说明："
+
+#. module: foggy_mcp
+msgid "The Foggy container will join this network and reach the database through Docker service names."
+msgstr "Foggy 容器将加入该网络，并通过 Docker 服务名访问数据库。"
+
+#. module: foggy_mcp
+msgid "Direct IP Settings"
+msgstr "直接 IP 设置"
+
+#. module: foggy_mcp
+msgid "The Foggy container will connect directly to the database host over IP. This is often preferable in production."
+msgstr "Foggy 容器将通过 IP 直接连接数据库主机，这通常更适合生产环境。"
+
+#. module: foggy_mcp
+msgid "Database Settings Read from Odoo (Read-only)"
+msgstr "从 Odoo 读取的数据库配置（只读）"
+
+#. module: foggy_mcp
+msgid "Regenerate Command"
+msgstr "重新生成命令"
+
+#. module: foggy_mcp
+msgid "Run this command in your terminal"
+msgstr "请在终端中运行以下命令"
+
+#. module: foggy_mcp
+msgid "Steps:"
+msgstr "操作步骤："
+
+#. module: foggy_mcp
+msgid "Foggy MCP URL"
+msgstr "Foggy MCP 地址"
+
+#. module: foggy_mcp
+msgid "Connection Status"
+msgstr "连接状态"
+
+#. module: foggy_mcp
+msgid "Test Result"
+msgstr "测试结果"
+
+#. module: foggy_mcp
+msgid "Tip:"
+msgstr "提示："
+
+#. module: foggy_mcp
+msgid "Connection looks good."
+msgstr "连接正常。"
+
+#. module: foggy_mcp
+msgid "Save Current Configuration"
+msgstr "保存当前配置"
+
+#. module: foggy_mcp
+msgid "Configure Data Source"
+msgstr "配置数据源"
+
+#. module: foggy_mcp
+msgid "Current connection mode:"
+msgstr "当前连接模式："
+
+#. module: foggy_mcp
+msgid "Docker Network"
+msgstr "Docker 网络"
+
+#. module: foggy_mcp
+msgid "Data Source Preview"
+msgstr "数据源预览"
+
+#. module: foggy_mcp
+msgid "Registration Result"
+msgstr "注册结果"
+
+#. module: foggy_mcp
+msgid "Initialize Closure Tables"
+msgstr "初始化闭包表"
+
+#. module: foggy_mcp
+msgid "Execution Result"
+msgstr "执行结果"
+
+#. module: foggy_mcp
+msgid "Closure tables:"
+msgstr "闭包表："
+
+#. module: foggy_mcp
+msgid "Setup Complete"
+msgstr "设置完成"
+
+#. module: foggy_mcp
+msgid "Foggy MCP is ready."
+msgstr "Foggy MCP 已就绪。"
+
+#. module: foggy_mcp
+msgid "Next step: create an API key and connect your AI assistant."
+msgstr "下一步：创建 API 密钥并连接你的 AI 助手。"
+
+#. module: foggy_mcp
+msgid "Next →"
+msgstr "下一步 →"
+
+#. module: foggy_mcp
+msgid "Skip"
+msgstr "跳过"
+
+#. module: foggy_mcp
+msgid "Create API Key"
+msgstr "创建 API 密钥"
+
+#. module: foggy_mcp
+msgid "← Previous"
+msgstr "← 上一步"
+
+#. module: foggy_mcp
+msgid "Cancel"
+msgstr "取消"
+
+#. module: foggy_mcp
+msgid "Name"
+msgstr "名称"
+
+#. module: foggy_mcp
+msgid "Active"
+msgstr "启用"
+
+#. module: foggy_mcp
+msgid "Last Used"
+msgstr "最后使用"
+
+#. module: foggy_mcp
+msgid "Allowed Companies"
+msgstr "允许的公司"
+
+#. module: foggy_mcp
+msgid "Key Preview"
+msgstr "密钥预览"
+
+#. module: foggy_mcp
+msgid "MCP Endpoint"
+msgstr "MCP 端点"
+
+#. module: foggy_mcp
+msgid "MCP Config"
+msgstr "MCP 配置"
+
+#. module: foggy_mcp
+msgid "Restrictions"
+msgstr "限制"
+
+#. module: foggy_mcp
+msgid "Connection Guide"
+msgstr "连接说明"
+
+#. module: foggy_mcp
+msgid "Ready-to-use config:"
+msgstr "即用配置："
+
+#. module: foggy_mcp
+msgid "Generic template for other environments:"
+msgstr "通用模板（适用于其他环境）："
+
+#. module: foggy_mcp
+msgid "Create an API key"
+msgstr "创建 API 密钥"
+
+#. module: foggy_mcp
+msgid "My API Keys"
+msgstr "我的 API 密钥"
+
+#. module: foggy_mcp
+msgid "No API keys yet"
+msgstr "暂无 API 密钥"
+
+#. module: foggy_mcp
+msgid "API Keys (All Users)"
+msgstr "API 密钥（所有用户）"
+
+#. module: foggy_mcp
+msgid "Foggy AI Chat"
+msgstr "Foggy AI 对话"
+
+#. module: foggy_mcp
+msgid "AI Chat"
+msgstr "AI 对话"
+
+#. module: foggy_mcp
+msgid "Ask about your business data..."
+msgstr "询问你的业务数据..."
+
+#. module: foggy_mcp
+msgid "Delete"
+msgstr "删除"
+
+#. module: foggy_mcp
+msgid "Title"
+msgstr "标题"
+
+#. module: foggy_mcp
+msgid "New Chat"
+msgstr "新对话"
+
+#. module: foggy_mcp
+msgid "Generated automatically from the first user message."
+msgstr "根据用户首条消息自动生成。"
+
+#. module: foggy_mcp
+msgid "Messages"
+msgstr "消息"
+
+#. module: foggy_mcp
+msgid "Session"
+msgstr "对话"
+
+#. module: foggy_mcp
+msgid "Assistant"
+msgstr "助手"
+
+#. module: foggy_mcp
+msgid "System"
+msgstr "系统"
+
+#. module: foggy_mcp
+msgid "Tool Result"
+msgstr "工具结果"
+
+#. module: foggy_mcp
+msgid "Role"
+msgstr "角色"
+
+#. module: foggy_mcp
+msgid "Content"
+msgstr "内容"
+
+#. module: foggy_mcp
+msgid "Tool Calls"
+msgstr "工具调用"
+
+#. module: foggy_mcp
+msgid "Tool Results"
+msgstr "工具结果"
+
+#. module: foggy_mcp
+msgid "Connection Result"
+msgstr "连接结果"
+
+#. module: foggy_mcp
+msgid "Embedded engine initialized, but the ping check failed."
+msgstr "内嵌引擎初始化成功，但 ping 检查失败。"
+
+#. module: foggy_mcp
+msgid "Missing the `requests` package.\n\nInstall it with: pip install requests"
+msgstr "缺少 `requests` 包。\n\n请安装：pip install requests"
+
+#. module: foggy_mcp
+msgid "Configuration saved"
+msgstr "配置已保存"
+
+#. module: foggy_mcp
+msgid "The Foggy MCP server URL and auth token have been saved."
+msgstr "Foggy MCP 服务地址和认证令牌已保存。"
+
+#. module: foggy_mcp
+msgid "unknown error"
+msgstr "未知错误"
+
+#. module: foggy_mcp
+msgid "Closure tables initialized successfully.\n\n"
+msgstr "闭包表初始化成功。\n\n"
+
+#. module: foggy_mcp
+msgid "Date dimension SQL file not found (optional)."
+msgstr "未找到日期维表 SQL 文件（可选）。"
+
+#. module: foggy_mcp
+msgid "API key regenerated"
+msgstr "API 密钥已重新生成"
+
+#. module: foggy_mcp
+msgid "New key: %s"
+msgstr "新密钥：%s"
+
+#. module: foggy_mcp
+msgid "Auto"
+msgstr "自动"

@@ -2,7 +2,7 @@
 <odoo>
     <!-- 客户端操作 - OWL 聊天组件 -->
     <record id="foggy_chat_action" model="ir.actions.client">
-        <field name="name">Foggy AI 对话</field>
+        <field name="name">Foggy AI Chat</field>
         <field name="tag">foggy_mcp.foggy_chat_action_client</field>
     </record>
 
@@ -14,14 +14,14 @@
               groups="base.group_user"/>
 
     <menuitem id="foggy_ai_menu_chat"
-              name="AI 对话"
+              name="AI Chat"
               parent="foggy_ai_menu_root"
               action="foggy_chat_action"
               sequence="10"/>
 
     <!-- 菜单：我的 API 密钥 — 位于 Foggy AI 下，所有内部用户可见 -->
     <menuitem id="foggy_ai_menu_my_key"
-              name="我的 API 密钥"
+              name="My API Keys"
               parent="foggy_ai_menu_root"
               action="foggy_my_api_key_action"
               sequence="20"
@@ -29,7 +29,7 @@
 
     <!-- 菜单：AI 对话 — 也保留在设置 → Foggy MCP 下 -->
     <menuitem id="foggy_mcp_user_menu_chat"
-              name="Foggy AI 对话"
+              name="Foggy AI Chat"
               parent="foggy_mcp_menu_root"
               action="foggy_chat_action"
               sequence="10"

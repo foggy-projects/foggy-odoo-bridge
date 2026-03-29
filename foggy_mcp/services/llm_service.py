@@ -4,17 +4,15 @@ LLM Service — orchestrates AI chat with Foggy MCP tool calling.
 
 Flow:
     1. Build system prompt with available models
-    2. Call LLM via litellm (OpenAI-compatible, supports 100+ providers)
+    2. Call LLM via openai / anthropic SDK (no litellm dependency)
     3. If LLM returns tool_use → execute through Foggy (with permission injection)
     4. Feed tool results back to LLM
     5. Return final assistant response
 
-Supported providers (via litellm):
-    - OpenAI (gpt-4o, gpt-4o-mini)
-    - Anthropic (claude-3-5-sonnet, claude-3-haiku)
-    - DeepSeek (deepseek/deepseek-chat)
-    - Ollama (ollama/llama3, ollama/qwen2)
-    - Azure, Groq, Together, etc.
+Supported providers:
+    - OpenAI (gpt-4o, gpt-4o-mini, etc.)
+    - OpenAI-compatible (DeepSeek, Ollama, vLLM, etc. — via base_url)
+    - Anthropic (claude-3-5-sonnet, claude-3-haiku, etc.)
 """
 import json
 import logging
@@ -143,11 +141,14 @@ def _build_system_prompt(env, uid):
     return prompt
 
 
-def _build_litellm_tools(env, uid):
-    """Convert Foggy MCP tools to litellm/OpenAI function calling format.
+def _build_openai_tools(env, uid):
+    """Convert Foggy MCP tools to OpenAI function calling format.
 
     Uses the unified engine backend (embedded or gateway) via mcp_controller,
     instead of creating a separate FoggyClient.
+
+    Returns:
+        tuple: (tools_list, name_map_dict)
     """
     from ..controllers.mcp_controller import _get_engine_backend, _get_tool_registry
 
@@ -156,7 +157,7 @@ def _build_litellm_tools(env, uid):
         foggy_tools = registry.get_tools_for_user(env, uid)
     except Exception as e:
         _logger.error("Failed to load tools for LLM: %s", e)
-        return []
+        return [], {}
 
     # Explicit name mapping: OpenAI function names can't have dots
     _TOOL_NAME_MAP = {
@@ -225,6 +226,208 @@ def _execute_tool_call(env, uid, tool_name, arguments, reverse_name_map=None):
         return {'error': str(e)}
 
 
+# ── Provider-specific LLM call implementations ────────────────
+
+
+def _call_openai(config, messages, tools):
+    """Call OpenAI or OpenAI-compatible API (DeepSeek, Ollama, vLLM, etc.).
+
+    Returns:
+        dict: {'message': assistant_message_dict, 'error': str or None}
+    """
+    try:
+        from openai import OpenAI
+    except ImportError:
+        return {'message': None, 'error': 'openai 包未安装。请运行：pip install openai'}
+
+    client_kwargs = {'api_key': config['api_key']}
+    if config['base_url']:
+        client_kwargs['base_url'] = config['base_url']
+
+    client = OpenAI(**client_kwargs)
+
+    call_kwargs = {
+        'model': config['model'],
+        'messages': messages,
+        'temperature': config['temperature'],
+    }
+    if tools:
+        call_kwargs['tools'] = tools
+        call_kwargs['tool_choice'] = 'auto'
+
+    response = client.chat.completions.create(**call_kwargs)
+    choice = response.choices[0]
+    msg = choice.message
+
+    # Normalize to dict for unified processing
+    result = {
+        'role': 'assistant',
+        'content': msg.content or '',
+    }
+    if msg.tool_calls:
+        result['tool_calls'] = [
+            {
+                'id': tc.id,
+                'type': 'function',
+                'function': {
+                    'name': tc.function.name,
+                    'arguments': tc.function.arguments,
+                }
+            }
+            for tc in msg.tool_calls
+        ]
+    return {'message': result, 'error': None}
+
+
+def _call_anthropic(config, messages, tools):
+    """Call Anthropic Claude API.
+
+    Anthropic has a different API format:
+    - system prompt is a top-level parameter, not in messages
+    - tool_use / tool_result are content block types
+    - tool results go in 'user' role messages with tool_result blocks
+
+    Returns:
+        dict: {'message': assistant_message_dict (OpenAI-normalized), 'error': str or None}
+    """
+    try:
+        from anthropic import Anthropic
+    except ImportError:
+        return {'message': None, 'error': 'anthropic 包未安装。请运行：pip install anthropic'}
+
+    client_kwargs = {'api_key': config['api_key']}
+    if config['base_url']:
+        client_kwargs['base_url'] = config['base_url']
+
+    client = Anthropic(**client_kwargs)
+
+    # Extract system prompt from messages (Anthropic uses top-level system param)
+    system_prompt = ''
+    anthropic_messages = []
+    for msg in messages:
+        if msg.get('role') == 'system':
+            system_prompt = msg.get('content', '')
+        else:
+            anthropic_messages.append(_to_anthropic_message(msg))
+
+    # Build Anthropic tools format
+    anthropic_tools = []
+    if tools:
+        for tool in tools:
+            fn = tool.get('function', {})
+            anthropic_tools.append({
+                'name': fn.get('name', ''),
+                'description': fn.get('description', ''),
+                'input_schema': fn.get('parameters', {'type': 'object', 'properties': {}}),
+            })
+
+    call_kwargs = {
+        'model': config['model'],
+        'messages': anthropic_messages,
+        'max_tokens': 4096,
+        'temperature': config['temperature'],
+    }
+    if system_prompt:
+        call_kwargs['system'] = system_prompt
+    if anthropic_tools:
+        call_kwargs['tools'] = anthropic_tools
+
+    response = client.messages.create(**call_kwargs)
+
+    # Normalize Anthropic response to OpenAI format
+    return {'message': _from_anthropic_response(response), 'error': None}
+
+
+def _to_anthropic_message(msg):
+    """Convert an OpenAI-format message to Anthropic format.
+
+    Handles:
+    - Regular text messages (user/assistant)
+    - Assistant messages with tool_calls → content blocks with tool_use
+    - Tool result messages → user messages with tool_result content blocks
+    """
+    role = msg.get('role', 'user')
+
+    # Tool result message → Anthropic tool_result content block
+    if role == 'tool':
+        return {
+            'role': 'user',
+            'content': [{
+                'type': 'tool_result',
+                'tool_use_id': msg.get('tool_call_id', ''),
+                'content': msg.get('content', ''),
+            }],
+        }
+
+    # Assistant message with tool_calls → Anthropic content blocks
+    if role == 'assistant' and msg.get('tool_calls'):
+        content_blocks = []
+        text = msg.get('content', '')
+        if text:
+            content_blocks.append({'type': 'text', 'text': text})
+        for tc in msg['tool_calls']:
+            fn = tc.get('function', {})
+            args_str = fn.get('arguments', '{}')
+            try:
+                args = json.loads(args_str) if isinstance(args_str, str) else args_str
+            except json.JSONDecodeError:
+                args = {}
+            content_blocks.append({
+                'type': 'tool_use',
+                'id': tc.get('id', ''),
+                'name': fn.get('name', ''),
+                'input': args,
+            })
+        return {'role': 'assistant', 'content': content_blocks}
+
+    # Regular text message
+    return {'role': role, 'content': msg.get('content', '')}
+
+
+def _from_anthropic_response(response):
+    """Convert Anthropic response to OpenAI-normalized dict.
+
+    Returns a dict with keys: role, content, tool_calls (optional)
+    """
+    result = {'role': 'assistant', 'content': ''}
+    tool_calls = []
+
+    for block in response.content:
+        if block.type == 'text':
+            result['content'] += block.text
+        elif block.type == 'tool_use':
+            tool_calls.append({
+                'id': block.id,
+                'type': 'function',
+                'function': {
+                    'name': block.name,
+                    'arguments': json.dumps(block.input, ensure_ascii=False),
+                },
+            })
+
+    if tool_calls:
+        result['tool_calls'] = tool_calls
+
+    return result
+
+
+def _call_llm(config, messages, tools):
+    """Dispatch to the correct provider.
+
+    Returns:
+        dict: {'message': assistant_message_dict, 'error': str or None}
+    """
+    provider = config['provider']
+    if provider == 'anthropic':
+        return _call_anthropic(config, messages, tools)
+    else:
+        # openai, deepseek, ollama, custom — all OpenAI-compatible
+        return _call_openai(config, messages, tools)
+
+
+# ── Main chat function ─────────────────────────────────────────
+
+
 def chat(env, uid, session_id, user_message):
     """
     Main chat function — send user message, get AI response.
@@ -238,14 +441,6 @@ def chat(env, uid, session_id, user_message):
     Returns:
         dict with 'content' (assistant reply) and 'error' (if any)
     """
-    try:
-        import litellm
-    except ImportError:
-        return {
-            'content': '',
-            'error': 'litellm package not installed. Run: pip install litellm',
-        }
-
     config = _get_llm_config(env)
     if not config['api_key']:
         return {
@@ -288,57 +483,34 @@ def chat(env, uid, session_id, user_message):
         })
 
     # Build tools and name mapping
-    tools, tool_name_map = _build_litellm_tools(env, uid)
+    tools, tool_name_map = _build_openai_tools(env, uid)
     reverse_name_map = {v: k for k, v in tool_name_map.items()}
-
-    # Configure litellm
-    model_name = config['model']
-    provider = config['provider']
-
-    # litellm provider prefix handling
-    if provider == 'ollama' and not model_name.startswith('ollama/'):
-        model_name = f'ollama/{model_name}'
-    elif provider == 'deepseek' and not model_name.startswith('deepseek/'):
-        model_name = f'deepseek/{model_name}'
-    elif provider == 'custom' and config['base_url']:
-        # Custom OpenAI-compatible endpoint — litellm needs openai/ prefix
-        if not model_name.startswith('openai/'):
-            model_name = f'openai/{model_name}'
-    elif provider == 'anthropic' and not model_name.startswith('anthropic/'):
-        model_name = f'anthropic/{model_name}'
-    # Note: openai provider doesn't need prefix — litellm infers from model name
 
     # LLM call with tool calling loop
     max_rounds = int(env['ir.config_parameter'].sudo().get_param(
         'foggy_mcp.llm_max_tool_rounds', str(DEFAULT_MAX_TOOL_ROUNDS)))
     try:
         for round_idx in range(max_rounds):
-            call_kwargs = {
-                'model': model_name,
-                'messages': messages,
-                'temperature': config['temperature'],
-                'api_key': config['api_key'],
-            }
-            if tools:
-                call_kwargs['tools'] = tools
-                call_kwargs['tool_choice'] = 'auto'
+            llm_result = _call_llm(config, messages, tools)
 
-            if config['base_url']:
-                call_kwargs['api_base'] = config['base_url']
+            if llm_result['error']:
+                return {
+                    'session_id': session.id,
+                    'content': '',
+                    'error': llm_result['error'],
+                }
 
-            response = litellm.completion(**call_kwargs)
-            choice = response.choices[0]
-            assistant_msg = choice.message
+            assistant_msg = llm_result['message']
 
             # Check for tool calls
-            if assistant_msg.tool_calls:
+            if assistant_msg.get('tool_calls'):
                 # Add assistant message with tool calls to history
-                messages.append(assistant_msg.model_dump())
+                messages.append(assistant_msg)
 
-                for tool_call in assistant_msg.tool_calls:
-                    fn_name = tool_call.function.name
+                for tool_call in assistant_msg['tool_calls']:
+                    fn_name = tool_call['function']['name']
                     try:
-                        fn_args = json.loads(tool_call.function.arguments)
+                        fn_args = json.loads(tool_call['function']['arguments'])
                     except json.JSONDecodeError:
                         fn_args = {}
 
@@ -352,7 +524,7 @@ def chat(env, uid, session_id, user_message):
                     # Add tool result to conversation
                     messages.append({
                         'role': 'tool',
-                        'tool_call_id': tool_call.id,
+                        'tool_call_id': tool_call['id'],
                         'content': result_str[:8000],  # Truncate if too long
                     })
 
@@ -360,7 +532,7 @@ def chat(env, uid, session_id, user_message):
                 continue
 
             # No tool calls — we have the final response
-            final_content = assistant_msg.content or ''
+            final_content = assistant_msg.get('content', '')
 
             # Save assistant response
             Message.create({

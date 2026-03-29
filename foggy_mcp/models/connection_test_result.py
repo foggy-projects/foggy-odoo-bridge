@@ -13,9 +13,9 @@ _logger = logging.getLogger(__name__)
 
 class FoggyConnectionTestResult(models.TransientModel):
     _name = 'foggy.connection.test.result'
-    _description = 'Foggy MCP 连接测试结果'
+    _description = 'Foggy MCP Connection Test Result'
 
     status_message = fields.Text(
-        string='连接结果',
+        string='Connection Result',
         readonly=True,
     )

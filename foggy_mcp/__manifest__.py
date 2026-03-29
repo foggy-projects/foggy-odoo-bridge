@@ -24,7 +24,7 @@ Features:
     - Tool registry with caching from Foggy MCP Server
     - Multi-company support
     - 8 pre-built Odoo business models (Sale, Purchase, Invoice, Stock, HR, Partner, Company, CRM)
-    - Built-in AI Chat: talk to your data directly from Odoo (supports OpenAI, Anthropic, DeepSeek, Ollama)
+    - Built-in AI Chat: talk to your data directly from Odoo (supports OpenAI-compatible APIs and Anthropic)
 
 Security:
     - Users only see data they have access to (enforced by Odoo ir.rule)
@@ -44,8 +44,8 @@ Data Privacy Notice:
     'website': 'https://github.com/nicholasgasior/foggy-data-mcp-bridge',
     'license': 'Other OSI approved licence',
     'depends': ['base', 'sale', 'purchase', 'account', 'stock', 'hr', 'crm'],
-    # litellm is optional: only needed for AI Chat (Foggy AI → 对话).
-    # MCP query endpoint works without it. llm_service.py handles ImportError gracefully.
+    # AI Chat requires 'openai' and/or 'anthropic' pip packages (optional).
+    # MCP query endpoint works without them. llm_service.py handles ImportError gracefully.
     'external_dependencies': {},
     'data': [
         'security/ir.model.access.csv',

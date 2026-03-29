@@ -5,7 +5,7 @@ import string
 
 import markupsafe
 
-from odoo import api, fields, models
+from odoo import _, api, fields, models
 
 _logger = logging.getLogger(__name__)
 
@@ -27,54 +27,54 @@ class FoggyApiKey(models.Model):
     _order = 'create_date desc'
 
     name = fields.Char(
-        string='名称',
+        string='Name',
         required=True,
-        help='API 密钥的可读名称（例如："Claude Desktop - 工作电脑"）',
+        help='Human-readable API key name (for example: "Claude Desktop - Work Laptop").',
     )
     key = fields.Char(
-        string='API 密钥',
+        string='API Key',
         readonly=True,
         copy=False,
-        help='API 密钥令牌，创建时自动生成。',
+        help='API key token, generated automatically when the record is created.',
     )
     user_id = fields.Many2one(
         'res.users',
-        string='用户',
+        string='User',
         required=True,
         default=lambda self: self.env.uid,
         ondelete='cascade',
-        help='此 API 密钥认证的 Odoo 用户。',
+        help='The Odoo user authenticated by this API key.',
     )
     active = fields.Boolean(
-        string='启用',
+        string='Active',
         default=True,
-        help='停用可撤销访问权限而不删除密钥。',
+        help='Disable the key to revoke access without deleting it.',
     )
     last_used = fields.Datetime(
-        string='最后使用',
+        string='Last Used',
         readonly=True,
-        help='最后一次成功认证的时间。',
+        help='Time of the last successful authentication.',
     )
     company_ids = fields.Many2many(
         'res.company',
-        string='允许的公司',
-        help='设置后将限制此密钥只能访问指定公司。留空表示允许用户所有公司。',
+        string='Allowed Companies',
+        help='If set, this key can only access the selected companies. Leave empty to allow all companies available to the user.',
     )
     key_short = fields.Char(
-        string='密钥预览',
+        string='Key Preview',
         compute='_compute_key_short',
-        help='密钥掩码预览（打开记录可复制完整密钥）。',
+        help='Masked key preview. Open the record to copy the full key.',
     )
     mcp_endpoint = fields.Char(
-        string='MCP 端点',
+        string='MCP Endpoint',
         compute='_compute_mcp_config',
-        help='此 Odoo 实例的完整 MCP 端点 URL。',
+        help='Full MCP endpoint URL for this Odoo instance.',
     )
     mcp_config_html = fields.Html(
-        string='MCP 配置',
+        string='MCP Config',
         compute='_compute_mcp_config',
         sanitize=False,
-        help='即用的 MCP 客户端配置（格式化 HTML）。',
+        help='Ready-to-use MCP client configuration rendered as formatted HTML.',
     )
 
     @api.depends('key')
@@ -141,8 +141,8 @@ class FoggyApiKey(models.Model):
             'type': 'ir.actions.client',
             'tag': 'display_notification',
             'params': {
-                'title': 'API 密钥已重新生成',
-                'message': f'新密钥：{self.key}',
+                'title': _('API key regenerated'),
+                'message': _('New key: %s') % self.key,
                 'type': 'success',
                 'sticky': True,
             }
@@ -169,7 +169,7 @@ class FoggyApiKey(models.Model):
 
         user = self.env['res.users'].sudo().browse(user_id)
         new_key = self.sudo().create({
-            'name': f'Auto — {user.name}',
+            'name': f"{_('Auto')} - {user.name}",
             'user_id': user_id,
         })
         _logger.info(

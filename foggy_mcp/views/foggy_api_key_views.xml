@@ -6,12 +6,12 @@
         <field name="model">foggy.api.key</field>
         <field name="arch" type="xml">
             <tree>
-                <field name="name" string="名称"/>
-                <field name="user_id" string="用户"/>
-                <field name="key_short" string="密钥预览"/>
-                <field name="active" string="启用" widget="boolean_toggle"/>
-                <field name="last_used" string="最后使用"/>
-                <field name="create_date" string="创建时间"/>
+                <field name="name" string="Name"/>
+                <field name="user_id" string="User"/>
+                <field name="key_short" string="Key Preview"/>
+                <field name="active" string="Active" widget="boolean_toggle"/>
+                <field name="last_used" string="Last Used"/>
+                <field name="create_date" string="Created On"/>
             </tree>
         </field>
     </record>
@@ -23,14 +23,14 @@
         <field name="arch" type="xml">
             <form>
                 <header>
-                    <button name="action_regenerate_key" string="重新生成密钥"
+                    <button name="action_regenerate_key" string="Regenerate Key"
                             type="object" class="btn-warning"
-                            confirm="这将使当前密钥失效，是否继续？"/>
+                            confirm="This will invalidate the current key. Continue?"/>
                 </header>
                 <sheet>
                     <div class="oe_title">
                         <h1>
-                            <field name="name" placeholder="例如：Claude Desktop - 工作电脑"/>
+                            <field name="name" placeholder="Example: Claude Desktop - Work Laptop"/>
                         </h1>
                     </div>
                     <group>
@@ -44,18 +44,18 @@
                             <field name="last_used"/>
                         </group>
                     </group>
-                    <group string="限制">
+                    <group string="Restrictions">
                         <field name="company_ids" widget="many2many_tags"/>
                     </group>
-                    <separator string="连接说明"/>
+                    <separator string="Connection Guide"/>
                     <div class="alert alert-success" role="alert">
-                        <p><strong>即用配置：</strong></p>
+                        <p><strong>Ready-to-use config:</strong></p>
                         <field name="mcp_config_html" widget="html" readonly="1" nolabel="1"/>
-                        <p class="mb-0 text-muted"><small>选中 JSON 文本后按 Ctrl+C / ⌘+C 复制。也可单独复制上方的 API 密钥和 MCP 端点。</small></p>
+                        <p class="mb-0 text-muted"><small>Select the JSON and press Ctrl+C / Cmd+C to copy it. You can also copy the API key and MCP endpoint separately above.</small></p>
                     </div>
                     <div class="alert alert-info" role="alert">
-                        <p><strong>通用模板（适用于其他环境）：</strong></p>
-                        <p>请将 <code>&lt;your-odoo-url&gt;</code> 和 <code>&lt;your-api-key&gt;</code> 替换为实际值：</p>
+                        <p><strong>Generic template for other environments:</strong></p>
+                        <p>Replace <code>&lt;your-odoo-url&gt;</code> and <code>&lt;your-api-key&gt;</code> with your actual values:</p>
                         <pre style="background:#f8f9fa; padding:12px; border-radius:4px; font-size:13px;">{
   "mcpServers": {
     "odoo": {
@@ -74,48 +74,48 @@
 
     <!-- API Key 操作 -->
     <record id="foggy_api_key_action" model="ir.actions.act_window">
-        <field name="name">MCP API 密钥</field>
+        <field name="name">MCP API Keys</field>
         <field name="res_model">foggy.api.key</field>
         <field name="view_mode">tree,form</field>
         <field name="help" type="html">
             <p class="o_view_nocontent_smiling_face">
-                创建 API 密钥
+                Create an API key
             </p>
             <p>
-                API 密钥允许 AI 客户端（Claude Desktop、Cursor 等）
-                通过 MCP 协议安全连接到 Odoo。
+                API keys allow AI clients such as Claude Desktop and Cursor
+                to connect to Odoo securely over MCP.
             </p>
         </field>
     </record>
 
     <!-- "我的 API 密钥" 操作 — 直接打开当前用户的密钥 -->
     <record id="foggy_my_api_key_action" model="ir.actions.act_window">
-        <field name="name">我的 API 密钥</field>
+        <field name="name">My API Keys</field>
         <field name="res_model">foggy.api.key</field>
         <field name="view_mode">tree,form</field>
         <field name="domain">[('user_id', '=', uid)]</field>
         <field name="context">{'default_user_id': uid}</field>
         <field name="help" type="html">
             <p class="o_view_nocontent_smiling_face">
-                暂无 API 密钥
+                No API keys yet
             </p>
             <p>
-                点击 <strong>新建</strong> 创建 Foggy MCP API 密钥，
-                然后在 Claude Desktop、Cursor 或其他兼容 MCP 的 AI 客户端中使用。
+                Click <strong>New</strong> to create a Foggy MCP API key,
+                then use it with Claude Desktop, Cursor, or any other MCP-compatible AI client.
             </p>
         </field>
     </record>
 
     <!-- "我的 API 密钥" 菜单 — 位于设置 → Foggy MCP 下 -->
     <menuitem id="foggy_mcp_user_menu_my_key"
-              name="MCP API 密钥"
+              name="MCP API Keys"
               parent="foggy_mcp_menu_root"
               action="foggy_my_api_key_action"
               sequence="20"
               groups="base.group_user"/>
 
     <menuitem id="foggy_mcp_menu_api_keys"
-              name="API 密钥（所有用户）"
+              name="API Keys (All Users)"
               parent="foggy_mcp_menu_root"
               action="foggy_api_key_action"
               sequence="10"/>

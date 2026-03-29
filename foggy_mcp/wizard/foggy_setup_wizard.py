@@ -7,7 +7,7 @@ import shlex
 import subprocess
 import json
 
-from odoo import api, fields, models, tools
+from odoo import _, api, fields, models, tools
 
 _logger = logging.getLogger(__name__)
 
@@ -153,23 +153,23 @@ class FoggySetupWizard(models.TransientModel):
     # ── Step control ──────────────────────────────────────────────────
 
     state = fields.Selection([
-        ('welcome', '欢迎'),
-        ('deploy', '部署'),
-        ('connection', '连接'),
-        ('datasource', '数据源'),
-        ('closure', '闭包表'),
-        ('done', '完成'),
-    ], string='步骤', default='welcome', required=True)
+        ('welcome', 'Welcome'),
+        ('deploy', 'Deploy'),
+        ('connection', 'Connection'),
+        ('datasource', 'Data Source'),
+        ('closure', 'Closure Tables'),
+        ('done', 'Done'),
+    ], string='Step', default='welcome', required=True)
 
     # 引擎模式（继承自 Settings，向导中也可选择）
     engine_mode = fields.Selection([
-        ('gateway', '网关模式'),
-        ('embedded', '内嵌模式（推荐）'),
-    ], string='引擎模式', default='embedded')
+        ('gateway', 'Gateway'),
+        ('embedded', 'Embedded (Recommended)'),
+    ], string='Engine Mode', default='embedded')
 
     embedded_available = fields.Boolean(
-        string='内嵌引擎可用', compute='_compute_embedded_available')
-    embedded_status = fields.Text(string='内嵌引擎状态', readonly=True)
+        string='Embedded Engine Available', compute='_compute_embedded_available')
+    embedded_status = fields.Text(string='Embedded Engine Status', readonly=True)
 
     @api.depends('engine_mode')
     def _compute_embedded_available(self):
@@ -182,47 +182,47 @@ class FoggySetupWizard(models.TransientModel):
 
     # ── Step 2: Deploy config ─────────────────────────────────────────
 
-    foggy_port = fields.Integer(string='Foggy MCP 端口', default=7108)
-    auth_token = fields.Char(string='认证令牌', readonly=True)
+    foggy_port = fields.Integer(string='Foggy MCP Port', default=7108)
+    auth_token = fields.Char(string='Auth Token', readonly=True)
 
     # Docker 网络检测（只读，仅用于显示）
-    docker_network_name = fields.Char(string='Docker 网络', readonly=True)
-    docker_network_mode = fields.Char(string='网络模式', readonly=True)
-    docker_network_detected = fields.Boolean(string='已检测到 Docker 网络', readonly=True)
-    docker_socket_available = fields.Boolean(string='Docker Socket 可用', readonly=True)
+    docker_network_name = fields.Char(string='Docker Network', readonly=True)
+    docker_network_mode = fields.Char(string='Network Mode', readonly=True)
+    docker_network_detected = fields.Boolean(string='Docker Network Detected', readonly=True)
+    docker_socket_available = fields.Boolean(string='Docker Socket Available', readonly=True)
 
     # Connection mode selection
     connection_mode = fields.Selection([
-        ('docker', 'Docker 网络（推荐）'),
-        ('direct_ip', '直接 IP 连接'),
-    ], string='连接模式', default='docker', required=True)
+        ('docker', 'Docker Network (Recommended)'),
+        ('direct_ip', 'Direct IP Connection'),
+    ], string='Connection Mode', default='docker', required=True)
 
     # Custom database host for direct IP mode (user-editable)
-    custom_db_host = fields.Char(string='数据库主机 IP', default='192.168.1.100')
+    custom_db_host = fields.Char(string='Database Host IP', default='192.168.1.100')
 
     # Docker network name (user can edit)
-    docker_network_input = fields.Char(string='Docker Network 名称', help='输入或选择 Docker 网络名称，运行 `docker network ls` 查看可用网络')
+    docker_network_input = fields.Char(string='Docker Network Name', help='Enter a Docker network name. Run `docker network ls` to inspect available networks.')
 
-    deploy_command = fields.Text(string='部署命令', readonly=True)
-    deploy_status = fields.Text(string='状态', readonly=True)
+    deploy_command = fields.Text(string='Deploy Command', readonly=True)
+    deploy_status = fields.Text(string='Status', readonly=True)
 
     # ── 第 3 步：连接测试 ───────────────────────────────────────
 
-    foggy_url = fields.Char(string='Foggy MCP 地址', default='http://localhost:7108')
-    connection_status = fields.Text(string='连接状态', readonly=True)
+    foggy_url = fields.Char(string='Foggy MCP URL', default='http://localhost:7108')
+    connection_status = fields.Text(string='Connection Status', readonly=True)
 
     # ── 第 4 步：数据源 ───────────────────────────────────────────
 
-    db_host = fields.Char(string='数据库主机')
-    db_port = fields.Char(string='数据库端口')
-    db_user = fields.Char(string='数据库用户')
-    db_password = fields.Char(string='数据库密码')
-    db_name = fields.Char(string='数据库名称')
-    datasource_status = fields.Text(string='数据源状态', readonly=True)
+    db_host = fields.Char(string='Database Host')
+    db_port = fields.Char(string='Database Port')
+    db_user = fields.Char(string='Database User')
+    db_password = fields.Char(string='Database Password')
+    db_name = fields.Char(string='Database Name')
+    datasource_status = fields.Text(string='Data Source Status', readonly=True)
 
     # ── 第 5 步：闭包表 ────────────────────────────────────────
 
-    closure_status = fields.Text(string='闭包表状态', readonly=True)
+    closure_status = fields.Text(string='Closure Table Status', readonly=True)
 
     # ══════════════════════════════════════════════════════════════════
     # Defaults
@@ -282,7 +282,7 @@ class FoggySetupWizard(models.TransientModel):
     _EMBEDDED_STEPS = ['welcome', 'closure', 'done']
 
     def _get_steps(self):
-        """根据引擎模式返回向导步骤列表。"""
+        """Return the step list for the selected engine mode."""
         if self.engine_mode == 'embedded':
             return self._EMBEDDED_STEPS
         return self._GATEWAY_STEPS
@@ -297,7 +297,7 @@ class FoggySetupWizard(models.TransientModel):
             old_mode = ICP.get_param('foggy_mcp.engine_mode', 'embedded')
             if old_mode != self.engine_mode:
                 ICP.set_param('foggy_mcp.engine_mode', self.engine_mode)
-                _logger.info("向导中切换引擎模式：%s → %s", old_mode, self.engine_mode)
+                _logger.info("Wizard switched engine mode: %s -> %s", old_mode, self.engine_mode)
                 # 重置单例
                 from ..controllers.mcp_controller import _reset_singletons
                 _reset_singletons()
@@ -328,23 +328,26 @@ class FoggySetupWizard(models.TransientModel):
         return self._reopen()
 
     def _test_embedded_engine(self):
-        """测试内嵌引擎是否可用。"""
+        """Test whether the embedded engine is available."""
         try:
             from ..services.engine_factory import create_backend
             backend = create_backend(self.env)
             ok = backend.ping()
             if ok:
                 self.write({
-                    'embedded_status': "✅ 内嵌引擎启动成功！\n\n"
-                                       f"模式：{backend.get_mode()}"
+                    'embedded_status': _("Embedded engine started successfully.\n\nMode: %(mode)s") % {
+                        'mode': backend.get_mode(),
+                    }
                 })
             else:
                 self.write({
-                    'embedded_status': "⚠️ 内嵌引擎初始化成功但 ping 失败。"
+                    'embedded_status': _("Embedded engine initialized, but the ping check failed.")
                 })
         except Exception as e:
             self.write({
-                'embedded_status': f"❌ 内嵌引擎不可用：{e}"
+                'embedded_status': _("Embedded engine unavailable: %(error)s") % {
+                    'error': e,
+                }
             })
 
     def _reopen(self):
@@ -470,18 +473,30 @@ class FoggySetupWizard(models.TransientModel):
             r = requests.get(f'{url.rstrip("/")}/actuator/health', timeout=5)
             if r.status_code == 200:
                 is_success = True
-                status_msg = (
-                    f"✅ 已成功连接 Foggy MCP 服务器\n\n"
-                    f"地址：{url}\n"
-                    f"认证令牌：{self.auth_token}\n\n"
-                    f"响应：{r.text[:200]}"
-                )
+                status_msg = _(
+                    "Connected to the Foggy MCP Server successfully.\n\n"
+                    "URL: %(url)s\n"
+                    "Auth token: %(token)s\n\n"
+                    "Response: %(response)s"
+                ) % {
+                    'url': url,
+                    'token': self.auth_token,
+                    'response': r.text[:200],
+                }
             else:
-                status_msg = f"❌ 服务器返回 HTTP {r.status_code}\n\n{r.text[:200]}"
+                status_msg = _(
+                    "Server returned HTTP %(status)s\n\n%(response)s"
+                ) % {
+                    'status': r.status_code,
+                    'response': r.text[:200],
+                }
         except ImportError:
-            status_msg = "❌ 缺少 requests 库\n\n请安装：pip install requests"
+            status_msg = _("Missing the `requests` package.\n\nInstall it with: pip install requests")
         except Exception as e:
-            status_msg = f"❌ 无法连接 {url}\n\n错误：{e}"
+            status_msg = _("Unable to connect to %(url)s\n\nError: %(error)s") % {
+                'url': url,
+                'error': e,
+            }
 
         self.write({'connection_status': status_msg})
 
@@ -507,8 +522,8 @@ class FoggySetupWizard(models.TransientModel):
             'type': 'ir.actions.client',
             'tag': 'display_notification',
             'params': {
-                'title': '配置已保存',
-                'message': 'Foggy MCP 服务地址和认证令牌已保存。',
+                'title': _('Configuration saved'),
+                'message': _('The Foggy MCP server URL and auth token have been saved.'),
                 'type': 'success',
                 'sticky': False,
             }
@@ -588,32 +603,53 @@ class FoggySetupWizard(models.TransientModel):
                     result = r_test.json()
                     if result.get('data', {}).get('success'):
                         self.write({
-                            'datasource_status': f"✅ 数据源配置成功！\n\n"
-                                                f"名称：odoo\n"
-                                                f"主机：{db_host}:{self.db_port}\n"
-                                                f"数据库：{self.db_name}"
+                            'datasource_status': _(
+                                "Data source configured successfully.\n\n"
+                                "Name: odoo\n"
+                                "Host: %(host)s:%(port)s\n"
+                                "Database: %(database)s"
+                            ) % {
+                                'host': db_host,
+                                'port': self.db_port,
+                                'database': self.db_name,
+                            }
                         })
                     else:
                         self.write({
-                            'datasource_status': f"⚠️ 数据源已注册，但连接测试失败。\n\n"
-                                                f"错误：{result.get('data', {}).get('message', '未知错误')}"
+                            'datasource_status': _(
+                                "Data source registered, but the connection test failed.\n\n"
+                                "Error: %(error)s"
+                            ) % {
+                                'error': result.get('data', {}).get('message', _('unknown error')),
+                            }
                         })
                 else:
                     self.write({
-                        'datasource_status': f"⚠️ 数据源已注册，但测试失败。\n\nHTTP {r_test.status_code}"
+                        'datasource_status': _(
+                            "Data source registered, but the test endpoint returned HTTP %(status)s."
+                        ) % {
+                            'status': r_test.status_code,
+                        }
                     })
             else:
                 self.write({
-                    'datasource_status': f"❌ 数据源配置失败。\n\nHTTP {r.status_code}\n{r.text[:200]}"
+                    'datasource_status': _(
+                        "Failed to configure the data source.\n\nHTTP %(status)s\n%(response)s"
+                    ) % {
+                        'status': r.status_code,
+                        'response': r.text[:200],
+                    }
                 })
 
         except ImportError:
             self.write({
-                'datasource_status': "❌ 缺少 requests 库\n\n请安装：pip install requests"
+                'datasource_status': _("Missing the `requests` package.\n\nInstall it with: pip install requests")
             })
         except Exception as e:
             self.write({
-                'datasource_status': f"❌ 错误：{e}"
+                'datasource_status': _("Error: %(error)s") % {
+                    'error': e,
+                }
             })
 
         return self._reopen()
@@ -633,8 +669,12 @@ class FoggySetupWizard(models.TransientModel):
             # Check if SQL file exists
             if not os.path.exists(sql_path):
                 self.write({
-                    'closure_status': f"❌ SQL 文件未找到：{sql_path}\n\n"
-                                      "此步骤为可选项，您可以跳过。"
+                    'closure_status': _(
+                        "SQL file not found: %(path)s\n\n"
+                        "This step is optional and can be skipped."
+                    ) % {
+                        'path': sql_path,
+                    }
                 })
                 return self._reopen()
 
@@ -659,7 +699,7 @@ class FoggySetupWizard(models.TransientModel):
             dim_date_status = self._init_dim_date()
 
             self.write({
-                'closure_status': "✅ 闭包表初始化完成！\n\n"
+                'closure_status': _("Closure tables initialized successfully.\n\n")
                                   + '\n'.join(counts)
                                   + '\n\n' + dim_date_status
             })
@@ -667,9 +707,13 @@ class FoggySetupWizard(models.TransientModel):
             # Log the error for debugging, but show user-friendly message
             _logger.warning("Closure table initialization failed: %s", e, exc_info=True)
             self.write({
-                'closure_status': f"❌ 错误：{e}\n\n"
-                                  "您可以跳过此步骤，后续随时初始化闭包表。\n"
-                                  "层级查询（child_of/parent_of）仍可使用 Odoo 原生 parent_path 工作。"
+                'closure_status': _(
+                    "Error: %(error)s\n\n"
+                    "You can skip this step and initialize closure tables later.\n"
+                    "Hierarchical queries (child_of / parent_of) can still fall back to Odoo's native parent_path."
+                ) % {
+                    'error': e,
+                }
             })
 
         return self._reopen()
@@ -682,16 +726,20 @@ class FoggySetupWizard(models.TransientModel):
         )
         try:
             if not os.path.exists(sql_path):
-                return "⚠️ 日期维表 SQL 未找到（可选）"
+                return _("Date dimension SQL file not found (optional).")
 
             with open(sql_path, 'r', encoding='utf-8') as f:
                 self.env.cr.execute(f.read())
             self.env.cr.execute("SELECT create_or_refresh_dim_date(2020, 2035)")
             row_count = self.env.cr.fetchone()[0]
-            return f"✅ 日期维表初始化完成：dim_date {row_count} rows (2020-2035)"
+            return _("Date dimension initialized successfully: dim_date %(count)s rows (2020-2035)") % {
+                'count': row_count,
+            }
         except Exception as e:
             _logger.warning("Date dimension initialization failed: %s", e)
-            return f"⚠️ 日期维表初始化失败：{e}（可选，不影响核心功能）"
+            return _("Date dimension initialization failed: %(error)s (optional; core functionality is unaffected)") % {
+                'error': e,
+            }
 
     def action_skip_closure(self):
         """Skip closure table initialization."""
