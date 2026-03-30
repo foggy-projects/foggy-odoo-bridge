@@ -1,10 +1,14 @@
-# Foggy Odoo Bridge
+# Foggy Odoo Bridge Community Edition
 
 [English](./README.md) | [简体中文](./README.zh-CN.md)
 
 在保留 Odoo 权限规则的前提下，为 Odoo 数据提供受治理的 MCP 访问能力，支持内置 AI Chat。
 
 Foggy Odoo Bridge 是一个 Odoo 插件，让 Claude、Cursor、Odoo 内置 AI Chat 以及其他 MCP 客户端可以查询 Odoo 业务数据，而不会绕过 Odoo 的权限体系。
+
+这个仓库目前作为 Community Edition 基线维护，重点提供受治理的 MCP 查询流程、Odoo 权限桥接能力，以及一套适合评估和开发者接入的核心功能。
+
+公开的技术补充说明放在 [`docs/`](./docs/README.md)。
 
 ```text
 AI client -> MCP -> Odoo bridge -> Foggy semantic layer -> SQL -> PostgreSQL

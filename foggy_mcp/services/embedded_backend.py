@@ -156,7 +156,8 @@ class EmbeddedBackend(EngineBackend):
         因为 Python V3 JSON 版的自有维度字段名有 $id 后缀 Bug。
         Markdown 版正确且 token 更少（~40-60%）。
 
-        See: docs/api-signature-mismatch-report-2026-03-23.md
+        This keeps the default path aligned with the currently validated
+        metadata behavior in the embedded Python engine.
         """
         fmt = arguments.get('format', 'markdown')
         if fmt == 'json':
@@ -173,7 +174,8 @@ class EmbeddedBackend(EngineBackend):
         Python V3 JSON 版的 get_metadata_v3() 对自有维度错误追加 $id，
         待 Python 团队修复后可切回 json。
 
-        See: docs/api-signature-mismatch-report-2026-03-23.md
+        This keeps the default path aligned with the currently validated
+        metadata behavior in the embedded Python engine.
         """
         model = arguments.get('model')
         if not model:

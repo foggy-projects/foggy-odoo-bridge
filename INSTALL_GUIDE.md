@@ -13,7 +13,7 @@ Current release status:
 
 - PostgreSQL is the only validated database for this addon today
 - MySQL is not officially supported by this Odoo bridge release yet
-- If you want to expose MySQL support later, it is safer to treat that as a `v1.1` target after dedicated validation
+- If MySQL support is introduced later, it should be treated as a separate future release after dedicated validation
 
 ## Dependency Notes
 
@@ -34,10 +34,7 @@ Notes:
 
 ### 1. Download the Addon
 
-```bash
-curl -LO https://github.com/foggy-projects/foggy-data-mcp-bridge/releases/download/main/foggy-odoo-addon.zip
-unzip foggy-odoo-addon.zip   # extracts to foggy_mcp/
-```
+Download the addon package from this repository's Releases page, or clone the repository and use the `foggy_mcp/` addon directory directly.
 
 ### 2. Install into Odoo
 

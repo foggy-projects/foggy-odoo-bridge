@@ -170,7 +170,10 @@ def compute_permission_slices(env, uid, qm_model_name, field_mapping_registry=No
         return []
 
     if odoo_model not in env:
-        _logger.debug("Odoo model not installed: %s", odoo_model)
+        _logger.info(
+            "Odoo model '%s' not installed, skipping permission computation "
+            "(module may not be installed)", odoo_model,
+        )
         return []
 
     # Load per-model column mapping from Foggy metadata (if registry available)
@@ -738,12 +741,21 @@ def _leaf_to_condition(leaf, negate=False, ctx=None):
             field = parts[0]
 
     # Map Odoo field name to QM column name
-    # When column_map is available (from FieldMappingRegistry), use it exclusively
-    # to avoid cross-model contamination from the global DIRECT_FIELD_MAP.
-    # Fall back to DIRECT_FIELD_MAP only when registry is unavailable.
+    # Strategy: prefer column_map (per-model dynamic mapping from FieldMappingRegistry),
+    # then fall back to DIRECT_FIELD_MAP for fields not in the dynamic map.
+    # This handles cases where Odoo ir.rule references related fields (e.g., company_id
+    # on account.payment is actually move_id.company_id) whose sourceColumn is not
+    # exposed by describe_model_internal for dimension properties.
     if _ctx.column_map:
-        qm_field = _ctx.column_map.get(field, field)
-        is_mapped = field in _ctx.column_map
+        if field in _ctx.column_map:
+            qm_field = _ctx.column_map[field]
+            is_mapped = True
+        elif field in DIRECT_FIELD_MAP:
+            qm_field = DIRECT_FIELD_MAP[field]
+            is_mapped = True
+        else:
+            qm_field = field
+            is_mapped = False
     else:
         qm_field = DIRECT_FIELD_MAP.get(field, field)
         is_mapped = field in DIRECT_FIELD_MAP

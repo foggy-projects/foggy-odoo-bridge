@@ -9,7 +9,6 @@ Regression tests for the metadata empty-response bug:
 
 Default format is markdown (correct field names for own dimensions).
 JSON format has a known Python-side bug where own dimensions get $id suffix.
-See: docs/api-signature-mismatch-report-2026-03-23.md
 
 These tests verify that metadata endpoints return complete field info
 through the Odoo MCP endpoint (embedded mode).

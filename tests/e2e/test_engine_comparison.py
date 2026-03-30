@@ -184,6 +184,77 @@ TEST_SCENARIOS = [
         'payload': {'columns': ['employeeCount']},
         'expect_min_rows': 1,
     },
+
+    # === 六、v1.1 新增模型 ===
+    {
+        'id': 'T50',
+        'name': '基础查询：付款记录',
+        'category': '基础查询',
+        'model': 'OdooAccountPaymentQueryModel',
+        'payload': {
+            'columns': ['paymentType', 'partnerType', 'partner$caption', 'amount'],
+            'limit': 10,
+        },
+        'expect_min_rows': 0,
+    },
+    {
+        'id': 'T51',
+        'name': '聚合：付款统计',
+        'category': '聚合分析',
+        'model': 'OdooAccountPaymentQueryModel',
+        'payload': {
+            'columns': ['paymentType', 'sum(amount) as totalAmount', 'paymentCount'],
+            'groupBy': ['paymentType'],
+        },
+        'expect_min_rows': 0,
+    },
+    {
+        'id': 'T52',
+        'name': '基础查询：会计分录行',
+        'category': '基础查询',
+        'model': 'OdooAccountMoveLineQueryModel',
+        'payload': {
+            'columns': ['moveName', 'account$caption', 'account$code', 'debit', 'credit', 'balance'],
+            'limit': 10,
+        },
+        'expect_min_rows': 0,
+    },
+    {
+        'id': 'T53',
+        'name': '维度JOIN：按科目汇总借贷方',
+        'category': '维度JOIN',
+        'model': 'OdooAccountMoveLineQueryModel',
+        'payload': {
+            'columns': ['account$caption', 'account$code', 'sum(debit) as totalDebit', 'sum(credit) as totalCredit', 'lineCount'],
+            'groupBy': ['account$caption', 'account$code'],
+            'orderBy': [{'field': 'totalDebit', 'direction': 'DESC'}],
+            'limit': 10,
+        },
+        'expect_min_rows': 0,
+    },
+    {
+        'id': 'T54',
+        'name': '基础查询：产品目录',
+        'category': '基础查询',
+        'model': 'OdooProductTemplateQueryModel',
+        'payload': {
+            'columns': ['defaultCode', 'detailedType', 'category$caption', 'listPrice'],
+            'limit': 10,
+        },
+        'expect_min_rows': 0,
+    },
+    {
+        'id': 'T55',
+        'name': '聚合：按产品分类统计数量',
+        'category': '聚合分析',
+        'model': 'OdooProductTemplateQueryModel',
+        'payload': {
+            'columns': ['category$caption', 'productCount'],
+            'groupBy': ['category$caption'],
+            'orderBy': [{'field': 'productCount', 'direction': 'DESC'}],
+        },
+        'expect_min_rows': 0,
+    },
 ]
 
 

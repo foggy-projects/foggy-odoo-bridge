@@ -1,10 +1,14 @@
-# Foggy Odoo Bridge
+# Foggy Odoo Bridge Community Edition
 
 [English](./README.md) | [简体中文](./README.zh-CN.md)
 
 Governed MCP access to Odoo data with Odoo permission preservation and built-in AI chat.
 
 Foggy Odoo Bridge is an Odoo addon that lets Claude, Cursor, built-in Odoo AI Chat, and other MCP clients query Odoo business data without bypassing Odoo permissions.
+
+This repository is the Community Edition baseline. It focuses on the core governed MCP workflow, the Odoo permission bridge, and a practical starter feature set for evaluation and developer adoption.
+
+Public technical notes are kept under [`docs/`](./docs/README.md).
 
 ```text
 AI client -> MCP -> Odoo bridge -> Foggy semantic layer -> SQL -> PostgreSQL

@@ -166,5 +166,72 @@ export const dicts = {
             { value: 'other', label: 'Other Address' },
             { value: 'private', label: 'Private Address' }
         ]
+    }),
+
+    /**
+     * 付款类型 (account.payment.payment_type)
+     */
+    payment_type: registerDict({
+        id: 'odoo_payment_type',
+        caption: 'Payment Type',
+        items: [
+            { value: 'inbound', label: 'Receive Money' },
+            { value: 'outbound', label: 'Send Money' }
+        ]
+    }),
+
+    /**
+     * 付款对象类型 (account.payment.partner_type)
+     */
+    payment_partner_type: registerDict({
+        id: 'odoo_payment_partner_type',
+        caption: 'Payment Partner Type',
+        items: [
+            { value: 'customer', label: 'Customer' },
+            { value: 'supplier', label: 'Vendor' }
+        ]
+    }),
+
+    /**
+     * 会计分录行展示类型 (account.move.line.display_type)
+     */
+    move_line_display_type: registerDict({
+        id: 'odoo_move_line_display_type',
+        caption: 'Line Display Type',
+        items: [
+            { value: 'product', label: 'Product' },
+            { value: 'cogs', label: 'Cost of Goods Sold' },
+            { value: 'tax', label: 'Tax' },
+            { value: 'rounding', label: 'Rounding' },
+            { value: 'payment_term', label: 'Payment Term' },
+            { value: 'line_section', label: 'Section' },
+            { value: 'line_note', label: 'Note' },
+            { value: 'epd', label: 'Early Payment Discount' }
+        ]
+    }),
+
+    /**
+     * 产品类型 (product.template.detailed_type)
+     */
+    product_detailed_type: registerDict({
+        id: 'odoo_product_detailed_type',
+        caption: 'Product Type',
+        items: [
+            { value: 'consu', label: 'Consumable' },
+            { value: 'service', label: 'Service' },
+            { value: 'product', label: 'Storable Product' }
+        ]
+    }),
+
+    /**
+     * 产品开票策略 (product.template.invoice_policy)
+     */
+    product_invoice_policy: registerDict({
+        id: 'odoo_product_invoice_policy',
+        caption: 'Invoicing Policy',
+        items: [
+            { value: 'order', label: 'Ordered Quantities' },
+            { value: 'delivery', label: 'Delivered Quantities' }
+        ]
     })
 }

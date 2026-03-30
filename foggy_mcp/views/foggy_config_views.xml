@@ -109,6 +109,37 @@
                             </div>
                         </setting>
                     </block>
+                    <block title="权限映射状态">
+                        <setting string="字段映射扫描"
+                                 help="扫描所有 QM 模型对应 Odoo 模型的 ir.rule 记录，检查权限字段的映射覆盖率。未映射的字段将导致查询被拒绝（fail-closed）。">
+                            <div class="content-group">
+                                <div class="mt16">
+                                    <button name="action_refresh_mapping_status"
+                                            string="刷新映射"
+                                            type="object" class="btn-primary"/>
+                                    <button name="action_view_mapping_status"
+                                            string="查看映射状态"
+                                            type="object" class="btn-secondary ms-2"/>
+                                </div>
+                                <field name="foggy_mapping_total_count" invisible="1"/>
+                                <field name="foggy_unmapped_field_count" invisible="1"/>
+                                <div class="alert alert-success mt16" role="alert"
+                                     invisible="foggy_mapping_total_count == 0 or foggy_unmapped_field_count &gt; 0">
+                                    <strong>✅ 所有权限字段已映射</strong>
+                                    （共 <field name="foggy_mapping_total_count" class="d-inline" nolabel="1" readonly="1"/> 个字段）
+                                </div>
+                                <div class="alert alert-info mt16" role="alert"
+                                     invisible="foggy_unmapped_field_count == 0">
+                                    <strong>ℹ️ 存在 <field name="foggy_unmapped_field_count" class="d-inline" nolabel="1" readonly="1"/> 个未映射字段</strong>
+                                    ，请在映射状态列表中查看详情。
+                                </div>
+                                <div class="text-muted mt8"
+                                     invisible="foggy_mapping_total_count != 0">
+                                    尚未执行扫描，请点击「刷新映射」按钮。
+                                </div>
+                            </div>
+                        </setting>
+                    </block>
                     <block title="AI Chat (LLM Settings)">
                         <setting string="LLM Provider" help="Select the model provider used by the built-in AI chat feature">
                             <div class="content-group">

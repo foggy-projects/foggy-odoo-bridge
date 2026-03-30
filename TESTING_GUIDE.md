@@ -15,7 +15,7 @@
 ```bash
 # 健康检查
 curl -s http://localhost:8069/foggy-mcp/health | python -m json.tool
-# 确认 status=ok, engine.mode=embedded, tool_count>=3, models 含 9 个模型
+# 确认 status=ok, engine.mode=embedded, tool_count>=3, models 含 12 个模型
 ```
 
 **登录信息**：
@@ -47,12 +47,6 @@ Settings → 顶部 Tab → **Foggy MCP**
 | 业务上下文 | 多行文本框，placeholder 含示例 | ✓|
 | LLM 提供商选项 | OpenAI / Anthropic / DeepSeek / Ollama / 自定义 | ✓ |
 
----
-
-## 检查项体验说明
-建议选择网关模式，加入网关模式的说明，及场景，比如独立布署的优势，及需要一定的技术和动手能力
-在切换引擎模式或修改了任一输入框后，点击启动设置向导，或测试连接，都会触发保存机制，保存后会刷新页面，还回不到Foggy MCP设置页，这里体验不友好，这两个应该是不需要保存就可以独立触发的操作
-
 ## 二、Setup Wizard（设置向导）
 
 Settings → Foggy MCP → 启动设置向导
@@ -76,12 +70,6 @@ Settings → Foggy MCP → 启动设置向导
 | 部署 | Docker 命令生成，按钮不换行 | ✓ |
 | 连接 | 服务器 URL 测试 | ✓ |
 | 数据源 | PostgreSQL 配置预览 | ✓ |
-
----
-
-## 网关模式向导体验说明
-部署步骤中，从 Odoo 配置自动读取（只读）卡片中的内容有换行，如数据库名称，odoo_demo这个词展示了4行
-数据源是步骤中的"数据源配置预览"卡片同样
 
 ## 三、API 密钥管理
 
@@ -151,7 +139,7 @@ curl -X POST http://localhost:8069/foggy-mcp/rpc \
 ### 4.5 非管理员用户（demo 账号）
 
 **登录信息**：`demo` / `demo`（uid=6）
-**API Key**：`fmcp_IZuGqHwLoRQJc7kjVRyrKu2nmIWrU9wmH0xfnInF`
+**API Key**：请在本地环境中为该用户自行生成测试 Key
 
 **demo 的角色**：
 - Sales: Own Documents Only（只看自己的销售订单）
@@ -169,8 +157,6 @@ curl -X POST http://localhost:8069/foggy-mcp/rpc \
 | purchase.order | 11 | 11 | User 看所有 |
 | stock.picking | 25 | 25 | User 看所有 |
 | account.move | 24 | 24 | Billing + All Invoices |
-
-> ⚠️ **已知问题**：当前 `FieldMappingRegistry` 的动态 column_map 映射 `company_id` → `company`（缺少 `$id` 后缀），导致部分 group rule 的 slice 注入字段名不正确（如 `salesperson` 而非 `salesperson$id`），查询引擎无法正确过滤。待修复后 demo 的 sale.order 和 crm.lead 数量应与预期一致。
 
 | 检查项 | 预期 | ✓ |
 |--------|------|---|
@@ -191,7 +177,7 @@ curl -X POST http://localhost:8069/foggy-mcp/rpc \
 curl http://localhost:8069/foggy-mcp/health | python -m json.tool
 ```
 
-预期：`status: "ok"`, `engine.mode: "embedded"`, `tool_count >= 3`, `models: 9 个`
+预期：`status: "ok"`, `engine.mode: "embedded"`, `tool_count >= 3`, `models: 12 个`
 
 ### 5.2 直接查询
 
@@ -304,7 +290,7 @@ python -m pytest tests/e2e/test_query_with_permissions.py tests/e2e/test_metadat
 
 ```
 Admin 用户
-  ├─ ir.model.access: 可读全部 9 个模型
+  ├─ ir.model.access: 可读全部 12 个模型
   ├─ ir.rule (global): company_id in user.company_ids
   └─ ir.rule (group): 按用户组过滤（OR 语义）
 ```

@@ -1,4 +1,4 @@
-# Foggy Odoo Bridge - 功能架构文档
+# Foggy Odoo Bridge Community Edition - 功能架构文档
 
 ## 1. 概述
 
@@ -150,6 +150,9 @@ ir.rule.domain_force (波兰表达式)
 | `res.partner` | OdooResPartnerQueryModel |
 | `res.company` | OdooResCompanyQueryModel |
 | `crm.lead` | OdooCrmLeadQueryModel |
+| `account.payment` | OdooAccountPaymentQueryModel |
+| `account.move.line` | OdooAccountMoveLineQueryModel |
+| `product.template` | OdooProductTemplateQueryModel |
 
 ### 3.4 Field Mapping Registry (`field_mapping_registry.py`)
 

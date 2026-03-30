@@ -13,7 +13,7 @@
 
 - 目前这个 Odoo Bridge 已验证的数据库是 PostgreSQL
 - 当前版本还**不把 MySQL 作为正式支持项**
-- 如果后续要提供 MySQL 支持，更合理的做法是放到 `v1.1`，并单独完成环境验证
+- 如果后续要提供 MySQL 支持，更合理的做法是作为独立的后续版本，并单独完成环境验证
 
 ## 依赖说明
 
@@ -34,10 +34,7 @@
 
 ### 1. 下载插件
 
-```bash
-curl -LO https://github.com/foggy-projects/foggy-data-mcp-bridge/releases/download/main/foggy-odoo-addon.zip
-unzip foggy-odoo-addon.zip   # 解压为 foggy_mcp/
-```
+请从当前仓库的 Releases 页面下载插件包，或者直接克隆仓库并使用其中的 `foggy_mcp/` 插件目录。
 
 ### 2. 安装到 Odoo
 

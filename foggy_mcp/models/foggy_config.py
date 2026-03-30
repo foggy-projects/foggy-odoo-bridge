@@ -133,6 +133,61 @@ class ResConfigSettings(models.TransientModel):
         readonly=True,
     )
 
+    # ── Permission Mapping Status ─────────────────────────────────
+    foggy_mapping_total_count = fields.Integer(
+        string='Total Mapped Fields',
+        compute='_compute_mapping_counts',
+    )
+    foggy_unmapped_field_count = fields.Integer(
+        string='Unmapped Fields',
+        compute='_compute_mapping_counts',
+    )
+
+    def _compute_mapping_counts(self):
+        StatusModel = self.env['foggy.field.mapping.status'].sudo()
+        total = StatusModel.search_count([])
+        unmapped = StatusModel.search_count([('status', '=', 'unmapped')])
+        for rec in self:
+            rec.foggy_mapping_total_count = total
+            rec.foggy_unmapped_field_count = unmapped
+
+    # ── Permission Mapping Actions ─────────────────────────────────
+
+    def action_refresh_mapping_status(self):
+        """Trigger a full scan of ir.rule fields and update mapping status records."""
+        self.ensure_one()
+        result = self.env['foggy.field.mapping.status'].refresh_mapping_status()
+
+        if result['unmapped'] > 0:
+            ntype = 'success'
+            msg = ('共 %d 个字段，%d 个未映射，请点击「查看映射状态」查看详情'
+                   % (result['total'], result['unmapped']))
+        else:
+            ntype = 'success'
+            msg = '共 %d 个字段，全部已映射' % result['total']
+
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'title': '映射扫描完成',
+                'message': msg,
+                'type': ntype,
+                'sticky': False,
+            },
+        }
+
+    def action_view_mapping_status(self):
+        """Open the field mapping status tree view."""
+        self.ensure_one()
+        return {
+            'type': 'ir.actions.act_window',
+            'name': '权限字段映射状态',
+            'res_model': 'foggy.field.mapping.status',
+            'view_mode': 'tree',
+            'target': 'current',
+        }
+
     # ── Safe Execute Override ─────────────────────────────────────
 
     def execute(self):

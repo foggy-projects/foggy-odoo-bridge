@@ -23,6 +23,9 @@ MODEL_MAPPING = {
     'res.partner': 'OdooResPartnerQueryModel',
     'res.company': 'OdooResCompanyQueryModel',
     'crm.lead': 'OdooCrmLeadQueryModel',
+    'account.payment': 'OdooAccountPaymentQueryModel',
+    'account.move.line': 'OdooAccountMoveLineQueryModel',
+    'product.template': 'OdooProductTemplateQueryModel',
 }
 
 # Reverse mapping: QM model name → Odoo model name
@@ -30,6 +33,9 @@ QM_TO_ODOO_MODEL = {v: k for k, v in MODEL_MAPPING.items()}
 
 # Tool names that are model-specific (contain a model parameter)
 MODEL_TOOL_NAMES = {'dataset.query_model'}
+
+# Track models that have been warned about not being installed (log once per process)
+_not_installed_warned = set()
 
 # Tool names that are always available (no model restriction)
 # Note: actual Foggy tool names are dataset.get_metadata and dataset.describe_model_internal
@@ -213,6 +219,13 @@ class ToolRegistry:
             try:
                 # Check that the model exists in this Odoo installation
                 if odoo_model not in user_env:
+                    if odoo_model not in _not_installed_warned:
+                        _not_installed_warned.add(odoo_model)
+                        _logger.info(
+                            "Model '%s' in MODEL_MAPPING but not installed in Odoo "
+                            "(module not loaded — this is normal if the module is optional)",
+                            odoo_model,
+                        )
                     continue
 
                 # ir.model.access.check() raises AccessError if denied,

@@ -7,3 +7,4 @@ access_foggy_chat_message_user,foggy.chat.message.user,model_foggy_chat_message,
 access_foggy_connection_test_result_user,foggy.connection.test.result.user,model_foggy_connection_test_result,base.group_user,1,0,0,0
 access_foggy_connection_test_result_admin,foggy.connection.test.result.admin,model_foggy_connection_test_result,base.group_system,1,1,1,1
 access_foggy_closure_cron_admin,foggy.closure.cron.admin,model_foggy_closure_cron,base.group_system,1,1,1,0
+access_foggy_field_mapping_status_admin,foggy.field.mapping.status.admin,model_foggy_field_mapping_status,base.group_system,1,1,1,1

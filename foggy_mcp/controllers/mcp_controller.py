@@ -265,6 +265,23 @@ class McpController(http.Controller):
                 # Model-level access check (ir.model.access)
                 odoo_model = QM_TO_ODOO_MODEL.get(model_name)
                 if odoo_model:
+                    # Defense-in-depth: check module installation before permission
+                    if odoo_model not in env:
+                        _logger.warning(
+                            "Module not installed: user=%s tried to query model=%s "
+                            "(Odoo model '%s' not available)",
+                            user.login, model_name, odoo_model,
+                        )
+                        return {
+                            'error': {
+                                'code': -32005,
+                                'message': (
+                                    f'模型 {odoo_model} 对应的 Odoo 模块未安装。'
+                                    f'请在 Odoo 应用中安装相关模块后重试。'
+                                ),
+                            }
+                        }
+
                     has_access = env['ir.model.access'].check(
                         odoo_model, 'read', raise_exception=False
                     )
@@ -424,11 +441,23 @@ class McpController(http.Controller):
             'timeout': ICP.get_param('foggy_mcp.request_timeout', '30'),
         }
 
-        # Check 4: Model mapping
-        result['checks']['models'] = {
+        # Check 4: Model mapping (with installation status)
+        installed = []
+        not_installed = []
+        for odoo_model in MODEL_MAPPING:
+            if odoo_model in env:
+                installed.append(odoo_model)
+            else:
+                not_installed.append(odoo_model)
+
+        models_check = {
             'mapped_count': len(MODEL_MAPPING),
-            'models': list(MODEL_MAPPING.keys()),
+            'installed_count': len(installed),
+            'installed': sorted(installed),
         }
+        if not_installed:
+            models_check['not_installed'] = sorted(not_installed)
+        result['checks']['models'] = models_check
 
         # Check 5: Field mapping registry
         try:

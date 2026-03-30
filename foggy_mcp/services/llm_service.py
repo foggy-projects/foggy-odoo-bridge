@@ -99,6 +99,9 @@ _MODEL_DESCRIPTIONS = {
     'OdooHrEmployeeQueryModel': '员工 — 姓名、部门、职位、工作地点、联系方式',
     'OdooResPartnerQueryModel': '联系人/合作伙伴 — 客户、供应商、地址',
     'OdooCrmLeadQueryModel': 'CRM 线索/商机 — 管道阶段、预期收入、概率、销售员',
+    'OdooAccountPaymentQueryModel': '付款记录 — 收付款金额、类型、合作伙伴、币种、对账状态',
+    'OdooAccountMoveLineQueryModel': '会计分录行 — 借贷方金额、科目、日记账、产品明细',
+    'OdooProductTemplateQueryModel': '产品目录 — 产品名称、类型、分类、价格、计量单位',
 }
 
 
@@ -546,6 +549,7 @@ def chat(env, uid, session_id, user_message):
     # LLM call with tool calling loop
     max_rounds = int(env['ir.config_parameter'].sudo().get_param(
         'foggy_mcp.llm_max_tool_rounds', str(DEFAULT_MAX_TOOL_ROUNDS)))
+
     try:
         for round_idx in range(max_rounds):
             llm_result = _call_llm(config, messages, tools)
@@ -573,7 +577,6 @@ def chat(env, uid, session_id, user_message):
 
                     _logger.info("Chat round %d tool call: %s(%s)", round_idx, fn_name, json.dumps(fn_args, ensure_ascii=False)[:200])
 
-                    # Execute tool
                     result = _execute_tool_call(env, uid, fn_name, fn_args, reverse_name_map)
                     result_str = json.dumps(result, ensure_ascii=False, default=str)
                     _logger.info("Chat round %d tool result length: %d, preview: %s", round_idx, len(result_str), result_str[:300])

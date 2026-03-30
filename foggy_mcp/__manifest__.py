@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Foggy MCP Gateway',
-    'version': '17.0.1.4.0',
+    'version': '17.0.1.5.0',
     'category': 'Technical',
     'summary': 'MCP Gateway for AI-powered natural language data queries via Foggy Framework',
     'description': """
@@ -23,7 +23,7 @@ Features:
     - Closure table hierarchy queries (child_of/parent_of -> selfAndDescendantsOf/selfAndAncestorsOf)
     - Tool registry with caching from Foggy MCP Server
     - Multi-company support
-    - 8 pre-built Odoo business models (Sale, Purchase, Invoice, Stock, HR, Partner, Company, CRM)
+    - 12 pre-built Odoo business models (Sale, Purchase, Invoice, Payment, Journal Items, Product, Stock, HR, Partner, Company, CRM)
     - Built-in AI Chat: talk to your data directly from Odoo (supports OpenAI-compatible APIs and Anthropic)
 
 Security:
@@ -53,6 +53,7 @@ Data Privacy Notice:
         'data/foggy_menus.xml',
         'views/connection_test_result_views.xml',
         'wizard/foggy_setup_wizard_views.xml',
+        'views/foggy_field_mapping_status_views.xml',
         'views/foggy_config_views.xml',
         'views/foggy_api_key_views.xml',
         'views/foggy_chat_views.xml',

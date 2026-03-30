@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <!-- Search view with filters and group-by -->
+    <record id="foggy_field_mapping_status_search" model="ir.ui.view">
+        <field name="name">foggy.field.mapping.status.search</field>
+        <field name="model">foggy.field.mapping.status</field>
+        <field name="arch" type="xml">
+            <search string="权限字段映射状态">
+                <field name="odoo_model" string="Odoo 模型"/>
+                <field name="rule_field" string="字段"/>
+                <field name="rule_name" string="规则名称"/>
+                <separator/>
+                <filter name="unmapped_only" string="仅未映射"
+                        domain="[('status', '=', 'unmapped')]"/>
+                <separator/>
+                <group expand="0" string="分组">
+                    <filter name="group_by_model" string="按模型"
+                            context="{'group_by': 'odoo_model'}"/>
+                    <filter name="group_by_status" string="按状态"
+                            context="{'group_by': 'status'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <!-- Tree view for field mapping status -->
+    <record id="foggy_field_mapping_status_tree" model="ir.ui.view">
+        <field name="name">foggy.field.mapping.status.tree</field>
+        <field name="model">foggy.field.mapping.status</field>
+        <field name="arch" type="xml">
+            <tree string="权限字段映射状态" create="false" edit="false" delete="false"
+                  decoration-muted="status == 'mapped'">
+                <field name="odoo_model" string="Odoo 模型"/>
+                <field name="rule_name" string="规则名称"/>
+                <field name="rule_field" string="ir.rule 字段"/>
+                <field name="qm_field" string="QM 字段"/>
+                <field name="status" invisible="1"/>
+                <field name="status_display" string="状态"/>
+                <field name="qm_model" string="QM 模型" optional="hide"/>
+            </tree>
+        </field>
+    </record>
+
+    <!-- Action to open the mapping status list -->
+    <record id="foggy_field_mapping_status_action" model="ir.actions.act_window">
+        <field name="name">权限字段映射状态</field>
+        <field name="res_model">foggy.field.mapping.status</field>
+        <field name="view_mode">tree</field>
+        <field name="search_view_id" ref="foggy_field_mapping_status_search"/>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                暂无映射状态数据
+            </p>
+            <p>
+                请在 Settings → Foggy MCP 页面点击「刷新映射」按钮执行扫描。
+            </p>
+        </field>
+    </record>
+</odoo>

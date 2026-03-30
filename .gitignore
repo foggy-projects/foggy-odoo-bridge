@@ -10,6 +10,7 @@ build/
 .vscode/
 *.swp
 *.swo
+.claude/
 
 # OS
 .DS_Store
@@ -24,9 +25,12 @@ foggy_mcp/static/src/components/**/*.css
 
 # Playwright
 .playwright-cli/
+docker/.playwright-cli/
+tests/playwright/node_modules/
 
 # Build artifacts
 *.zip
+*.dump
 chart-images/
 
 # Runtime artifacts
@@ -34,4 +38,7 @@ chart-images/
 .foggy-mcp.pid
 foggy-mcp.log
 foggy-mcp-err.log
+python-mcp.log
+.foggy-attachments/
+.pytest_cache/
 tmp/
