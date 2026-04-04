@@ -1,0 +1,7 @@
+{
+  "registry": "../foggy-model-registry/data",
+  "package": "foggy.odoo.community",
+  "version": "1.1.0-local",
+  "checksum": "manual",
+  "content_checksum": "sha256:dee6626820a745f1c3d4ee44b699516a3b5e3131bc8533fa93af2d11855ff509"
+}
