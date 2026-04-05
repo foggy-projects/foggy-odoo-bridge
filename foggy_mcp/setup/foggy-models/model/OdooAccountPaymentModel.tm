@@ -11,6 +11,7 @@ export const model = {
     name: 'OdooAccountPaymentModel',
     caption: 'Payments',
     tableName: 'account_payment',
+    dataSourceName: 'odoo',
     idColumn: 'id',
 
     dimensions: [

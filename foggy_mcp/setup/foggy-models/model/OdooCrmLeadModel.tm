@@ -10,6 +10,7 @@ export const model = {
     name: 'OdooCrmLeadModel',
     caption: 'CRM Leads & Opportunities',
     tableName: 'crm_lead',
+    dataSourceName: 'odoo',
     idColumn: 'id',
 
     dimensions: [

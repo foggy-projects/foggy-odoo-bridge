@@ -12,6 +12,7 @@ export const model = {
     name: 'OdooAccountMoveLineModel',
     caption: 'Journal Items',
     tableName: 'account_move_line',
+    dataSourceName: 'odoo',
     idColumn: 'id',
 
     dimensions: [

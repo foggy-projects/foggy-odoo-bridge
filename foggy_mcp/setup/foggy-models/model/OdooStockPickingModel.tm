@@ -11,6 +11,7 @@ export const model = {
     name: 'OdooStockPickingModel',
     caption: 'Inventory Transfers',
     tableName: 'stock_picking',
+    dataSourceName: 'odoo',
     idColumn: 'id',
 
     dimensions: [

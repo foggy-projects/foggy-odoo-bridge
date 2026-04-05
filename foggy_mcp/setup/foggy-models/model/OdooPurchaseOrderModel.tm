@@ -10,6 +10,7 @@ export const model = {
     name: 'OdooPurchaseOrderModel',
     caption: 'Purchase Orders',
     tableName: 'purchase_order',
+    dataSourceName: 'odoo',
     idColumn: 'id',
 
     dimensions: [

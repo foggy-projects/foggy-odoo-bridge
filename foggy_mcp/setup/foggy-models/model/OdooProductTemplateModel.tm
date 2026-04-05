@@ -11,6 +11,7 @@ export const model = {
     name: 'OdooProductTemplateModel',
     caption: 'Products',
     tableName: 'product_template',
+    dataSourceName: 'odoo',
     idColumn: 'id',
 
     dimensions: [

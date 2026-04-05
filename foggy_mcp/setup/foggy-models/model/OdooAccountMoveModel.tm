@@ -11,6 +11,7 @@ export const model = {
     name: 'OdooAccountMoveModel',
     caption: 'Invoices & Journal Entries',
     tableName: 'account_move',
+    dataSourceName: 'odoo',
     idColumn: 'id',
 
     dimensions: [

@@ -8,6 +8,7 @@ export const model = {
     name: 'OdooHrEmployeeModel',
     caption: 'Employees',
     tableName: 'hr_employee',
+    dataSourceName: 'odoo',
     idColumn: 'id',
 
     dimensions: [

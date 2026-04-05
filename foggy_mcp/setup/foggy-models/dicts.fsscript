@@ -233,5 +233,48 @@ export const dicts = {
             { value: 'order', label: 'Ordered Quantities' },
             { value: 'delivery', label: 'Delivered Quantities' }
         ]
+    }),
+
+    /**
+     * 项目任务状态 (project.task — Odoo 17 uses stage_id for kanban,
+     * but state field stores the lifecycle state)
+     */
+    project_task_state: registerDict({
+        id: 'odoo_project_task_state',
+        caption: 'Task State',
+        items: [
+            { value: '01_in_progress', label: 'In Progress' },
+            { value: '1_done', label: 'Done' },
+            { value: '1_canceled', label: 'Canceled' },
+            { value: '04_waiting_normal', label: 'Waiting' }
+        ]
+    }),
+
+    /**
+     * 项目任务优先级 (project.task.priority)
+     */
+    project_task_priority: registerDict({
+        id: 'odoo_project_task_priority',
+        caption: 'Task Priority',
+        items: [
+            { value: '0', label: 'Normal' },
+            { value: '1', label: 'Important' }
+        ]
+    }),
+
+    /**
+     * 生产订单状态 (mrp.production.state)
+     */
+    mrp_production_state: registerDict({
+        id: 'odoo_mrp_production_state',
+        caption: 'Manufacturing Order Status',
+        items: [
+            { value: 'draft', label: 'Draft' },
+            { value: 'confirmed', label: 'Confirmed' },
+            { value: 'progress', label: 'In Progress' },
+            { value: 'to_close', label: 'To Close' },
+            { value: 'done', label: 'Done' },
+            { value: 'cancel', label: 'Cancelled' }
+        ]
     })
 }

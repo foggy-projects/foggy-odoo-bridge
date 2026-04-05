@@ -11,6 +11,7 @@ export const model = {
     name: 'OdooResPartnerModel',
     caption: 'Partners',
     tableName: 'res_partner',
+    dataSourceName: 'odoo',
     idColumn: 'id',
 
     dimensions: [
