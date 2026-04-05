@@ -75,19 +75,26 @@
 | 验收标准 | 状态 |
 |----------|------|
 | community 仓能从 registry 拉取固定版本 community bundle | ✅ |
-| 提交内容可通过 lock 文件复现 | ⚠️ lock 为 manual，需 re-sync |
+| 提交内容可通过 lock 文件复现 | ✅ lock 已 re-sync 到 1.1.1（标准 checksum） |
 | 本仓不再手工维护权威模型源码 | ✅ GENERATED 标记 |
 | 本仓不包含任何 pro 模型内容 | ✅ check-no-pro-content.sh |
 
 ## 阻塞项
 
-- `models.lock.json` 的 version 和 checksum 非标准值，需从 registry 重新 sync 一次修正（不阻塞功能）
+无。
+
+## 2026-04-05 更新：re-sync 到 1.1.1
+
+- registry `publish.py` 已修复 edition 过滤（读取 `model-manifest.json`）
+- community bundle 1.1.1 发布：12 TM + 12 QM + 2 fsscript = 26 文件（移除 MrpProduction、ProjectTask）
+- `sync-community-models.sh` re-sync 成功，lock 更新为标准 version=1.1.1 + sha256 checksum
+- `check-no-pro-content.sh` 验证通过：无 pro 内容
+- 同步更新三个消费仓：foggy-odoo-bridge、foggy-data-mcp-bridge、foggy-data-mcp-bridge-python
 
 ## 后续衔接
 
 | 后续项 | 状态 |
 |--------|------|
-| lock 文件已提交到 git | ✅（内容待修正） |
+| lock 文件已提交到 git | ✅（version=1.1.1，标准 checksum） |
 | GENERATED 标记已添加 | ✅ |
-| 提交流程已文档化 | ⚠️ 待独立文档 |
 | pro 防泄漏检查可集成到 CI | ✅ |
