@@ -73,6 +73,19 @@ export const model = {
             ]
         },
         {
+            name: 'partnerCountry',
+            tableName: 'res_country',
+            foreignKey: 'country_id',
+            primaryKey: 'id',
+            joinTo: 'partner',
+            captionDef: jsonbCaption(),
+            caption: 'Partner Country',
+            description: 'Country of the journal item partner',
+            properties: [
+                { column: 'code', caption: 'Country Code', type: 'STRING' }
+            ]
+        },
+        {
             name: 'product',
             tableName: 'product_product',
             foreignKey: 'product_id',
@@ -101,6 +114,25 @@ export const model = {
             captionColumn: 'name',
             caption: 'Currency',
             description: 'Line currency'
+        },
+        {
+            name: 'invoiceDate',
+            tableName: 'dim_date',
+            foreignKey: 'invoice_date',
+            primaryKey: 'full_date',
+            captionColumn: 'year_month',
+            caption: 'Invoice Date',
+            description: 'Calendar dimension for the account.move.line invoice_date field.',
+            type: 'DATE',
+            properties: [
+                { column: 'year', caption: 'Invoice Year', type: 'INTEGER' },
+                { column: 'quarter', caption: 'Invoice Quarter', type: 'INTEGER' },
+                { column: 'month', caption: 'Invoice Month', type: 'INTEGER' },
+                { column: 'week_of_year', name: 'week', caption: 'Invoice Week', type: 'INTEGER' },
+                { column: 'day_of_month', name: 'dayOfMonth', caption: 'Invoice Day of Month', type: 'INTEGER' },
+                { column: 'year_month', name: 'yearMonth', caption: 'Invoice Year-Month', type: 'STRING' },
+                { column: 'year_quarter', name: 'yearQuarter', caption: 'Invoice Year-Quarter', type: 'STRING' }
+            ]
         }
     ],
 
@@ -115,13 +147,16 @@ export const model = {
               + 'to exclude unposted drafts — mirrors move.state when queried through the move '
               + 'dimension ($move$state).' },
         { column: 'display_type', caption: 'Display Type', type: 'STRING', dictRef: dicts.move_line_display_type },
-        { column: 'date', caption: 'Date', type: 'DAY' },
-        { column: 'invoice_date', caption: 'Invoice Date', type: 'DAY' },
+        { column: 'date', caption: 'Date', type: 'DAY',
+          timeRole: 'posting_date', recommendedUse: 'Use for GL posting-period analysis.' },
+        { column: 'invoice_date', caption: 'Invoice Date', type: 'DAY',
+          timeRole: 'business_date', recommendedUse: 'Primary invoice line business date for invoice trend and period pivot queries.' },
         { column: 'date_maturity', caption: 'Due Date', type: 'DAY',
           description: 'Maturity / due date for this AR or AP line (matches account.move.line.'
               + 'date_maturity). Compared against now() to detect overdue rows — a line is '
               + 'considered overdue when date_maturity < now() AND amount_residual > 0 AND '
-              + 'parent_state = posted.' },
+              + 'parent_state = posted.',
+          timeRole: 'due_date', recommendedUse: 'Use for AR/AP aging and overdue receivable/payable analysis.' },
         { column: 'matching_number', caption: 'Matching Number', type: 'STRING' },
         { column: 'reconciled', caption: 'Reconciled', type: 'BOOL',
           description: 'TRUE once this line is fully reconciled against one or more payment '

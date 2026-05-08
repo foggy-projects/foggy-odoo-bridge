@@ -33,7 +33,22 @@ export const queryModel = {
             items: [
                 { ref: sol.order },
                 { ref: sol.order$state },
-                { ref: sol.order$dateOrder }
+                { ref: sol.order$dateOrder },
+                { ref: sol.orderDate },
+                { ref: sol.orderDate$year },
+                { ref: sol.orderDate$month },
+                { ref: sol.orderDate$yearMonth }
+            ]
+        },
+        {
+            caption: 'Customer',
+            items: [
+                { ref: sol.orderPartner },
+                { ref: sol.orderPartner$email },
+                { ref: sol.orderPartner$city },
+                { ref: sol.orderPartnerCountry },
+                { ref: sol.orderPartnerCountry$code },
+                { ref: sol.orderPartner$isCompany }
             ]
         },
         {

@@ -24,7 +24,86 @@ export const model = {
             description: 'Parent sale order',
             properties: [
                 { column: 'state', caption: 'Order Status', type: 'STRING', dictRef: dicts.sale_order_state },
-                { column: 'date_order', caption: 'Order Date', type: 'DATETIME' }
+                { column: 'date_order', caption: 'Order Date', type: 'DATETIME',
+                  timeRole: 'business_date', recommendedUse: 'Primary sales line business date inherited from the parent sale order.' }
+            ]
+        },
+        {
+            name: 'orderDate',
+            tableName: 'sale_order',
+            foreignKey: 'order_id',
+            primaryKey: 'id',
+            captionColumn: 'date_order',
+            caption: 'Order Date',
+            description: 'Parent sale order date-grain dimension backed by sale_order.date_order without joining dim_date',
+            type: 'DATETIME',
+            timeRole: 'business_date',
+            recommendedUse: 'Use for sales-line trend and product-by-month period pivot queries.',
+            properties: [
+                {
+                    column: 'date_order',
+                    name: 'year',
+                    caption: 'Order Year',
+                    type: 'INTEGER',
+                    dialectFormulaDef: {
+                        sqlite: { builder: (alias) => { return `CAST(strftime('%Y', ${alias}.date_order) AS INTEGER)`; } },
+                        postgresql: { builder: (alias) => { return `EXTRACT(YEAR FROM ${alias}.date_order)`; } },
+                        mysql: { builder: (alias) => { return `YEAR(${alias}.date_order)`; } },
+                        sqlserver: { builder: (alias) => { return `DATEPART(year, ${alias}.date_order)`; } }
+                    }
+                },
+                {
+                    column: 'date_order',
+                    name: 'month',
+                    caption: 'Order Month',
+                    type: 'INTEGER',
+                    dialectFormulaDef: {
+                        sqlite: { builder: (alias) => { return `CAST(strftime('%m', ${alias}.date_order) AS INTEGER)`; } },
+                        postgresql: { builder: (alias) => { return `EXTRACT(MONTH FROM ${alias}.date_order)`; } },
+                        mysql: { builder: (alias) => { return `MONTH(${alias}.date_order)`; } },
+                        sqlserver: { builder: (alias) => { return `DATEPART(month, ${alias}.date_order)`; } }
+                    }
+                },
+                {
+                    column: 'date_order',
+                    name: 'yearMonth',
+                    caption: 'Order Year-Month',
+                    type: 'STRING',
+                    dialectFormulaDef: {
+                        sqlite: { builder: (alias) => { return `strftime('%Y-%m', ${alias}.date_order)`; } },
+                        postgresql: { builder: (alias) => { return `TO_CHAR(${alias}.date_order, 'YYYY-MM')`; } },
+                        mysql: { builder: (alias) => { return `DATE_FORMAT(${alias}.date_order, '%Y-%m')`; } },
+                        sqlserver: { builder: (alias) => { return `CONVERT(char(7), ${alias}.date_order, 120)`; } }
+                    }
+                }
+            ]
+        },
+        {
+            name: 'orderPartner',
+            tableName: 'res_partner',
+            foreignKey: 'partner_id',
+            primaryKey: 'id',
+            joinTo: 'order',
+            captionColumn: 'name',
+            caption: 'Order Customer',
+            description: 'Customer on the parent sale order',
+            properties: [
+                { column: 'email', caption: 'Email', type: 'STRING' },
+                { column: 'city', caption: 'City', type: 'STRING' },
+                { column: 'is_company', caption: 'Is Company', type: 'BOOL' }
+            ]
+        },
+        {
+            name: 'orderPartnerCountry',
+            tableName: 'res_country',
+            foreignKey: 'country_id',
+            primaryKey: 'id',
+            joinTo: 'orderPartner',
+            captionDef: jsonbCaption(),
+            caption: 'Order Customer Country',
+            description: 'Country of the customer on the parent sale order',
+            properties: [
+                { column: 'code', caption: 'Country Code', type: 'STRING' }
             ]
         },
         {
