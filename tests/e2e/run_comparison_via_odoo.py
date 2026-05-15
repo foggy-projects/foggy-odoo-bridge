@@ -91,7 +91,7 @@ def mcp_query(session, model, payload):
     r = session.post(f'{ODOO}/foggy-mcp/rpc', json={
         'jsonrpc': '2.0', 'id': 1,
         'method': 'tools/call',
-        'params': {'name': 'dataset.query_model', 'arguments': {'model': model, 'payload': payload}},
+        'params': {'name': 'dataset__query_model', 'arguments': {'model': model, 'payload': payload}},
     }, timeout=30)
     duration = (time.time() - start) * 1000
 
@@ -165,7 +165,7 @@ def main():
     print('\n=== Phase 2: Java Gateway (via Odoo MCP) ===')
     set_param(session, 'foggy_mcp.engine_mode', 'gateway')
     set_param(session, 'foggy_mcp.server_url', JAVA_URL)
-    set_param(session, 'foggy_mcp.namespace', 'odoo')
+    set_param(session, 'foggy_mcp.namespace', 'odoo17')
     time.sleep(1)
     print(f'  engine_mode={get_param(session, "foggy_mcp.engine_mode")}, '
           f'server_url={get_param(session, "foggy_mcp.server_url")}, '
@@ -173,7 +173,7 @@ def main():
     all_results['java'] = run_all(session, 'java-gateway')
     with open('tests/results/java-gateway-results.json', 'w', encoding='utf-8') as f:
         json.dump({'engine_mode': 'java-gateway', 'via': 'odoo-mcp',
-                   'server_url': JAVA_URL, 'namespace': 'odoo',
+                   'server_url': JAVA_URL, 'namespace': 'odoo17',
                    'timestamp': time.strftime('%Y-%m-%dT%H:%M:%S'),
                    'scenarios': all_results['java']}, f, ensure_ascii=False, indent=2)
 
@@ -181,14 +181,14 @@ def main():
     print('\n=== Phase 3: Python Gateway (via Odoo MCP) ===')
     set_param(session, 'foggy_mcp.server_url', PYTHON_URL)
     set_param(session, 'foggy_mcp.endpoint_path', '/mcp/analyst/rpc')
-    set_param(session, 'foggy_mcp.namespace', '')
+    set_param(session, 'foggy_mcp.namespace', 'odoo17')
     time.sleep(1)
     print(f'  server_url={get_param(session, "foggy_mcp.server_url")}, '
           f'namespace="{get_param(session, "foggy_mcp.namespace")}"')
     all_results['python'] = run_all(session, 'python-gateway')
     with open('tests/results/python-gateway-results.json', 'w', encoding='utf-8') as f:
         json.dump({'engine_mode': 'python-gateway', 'via': 'odoo-mcp',
-                   'server_url': PYTHON_URL, 'namespace': '',
+                   'server_url': PYTHON_URL, 'namespace': 'odoo17',
                    'timestamp': time.strftime('%Y-%m-%dT%H:%M:%S'),
                    'scenarios': all_results['python']}, f, ensure_ascii=False, indent=2)
 

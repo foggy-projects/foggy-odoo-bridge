@@ -2,6 +2,7 @@
  * Shared helpers for Playwright tests.
  */
 import { Page, expect } from '@playwright/test';
+import fs from 'fs';
 import path from 'path';
 
 export const STORAGE_STATE = path.join(__dirname, '.auth', 'admin.json');
@@ -10,33 +11,26 @@ export const STORAGE_STATE = path.join(__dirname, '.auth', 'admin.json');
  * Navigate to Settings → Foggy MCP tab.
  */
 export async function navigateToFoggySettings(page: Page) {
-  await page.goto('/web#action=base_setup.action_general_configuration');
-  await page.waitForLoadState('networkidle');
+  await page.goto('/web#action=base_setup.action_general_configuration', {
+    waitUntil: 'domcontentloaded',
+  });
+  await expect(page.locator('.o_form_view')).toBeVisible({ timeout: 20_000 });
 
-  // Click the Foggy MCP tab
-  const tab = page.locator('.app_settings_header .tab', { hasText: 'Foggy MCP' });
-  if (await tab.isVisible()) {
-    await tab.click();
-    await page.waitForTimeout(500);
-  }
-}
-
-/**
- * Navigate to Foggy AI Chat page.
- */
-export async function navigateToAiChat(page: Page) {
-  // Try direct URL first
-  await page.goto('/web#action=foggy_mcp.action_foggy_chat');
-  await page.waitForLoadState('networkidle');
-  await page.waitForTimeout(1000);
+  const foggyTab = page.getByRole('tab', { name: /Foggy MCP/i });
+  await expect(foggyTab).toBeVisible({ timeout: 10_000 });
+  await foggyTab.click();
+  await expect(page.getByText('Engine Mode').first()).toBeVisible({ timeout: 10_000 });
 }
 
 /**
  * Navigate to API Key management.
  */
 export async function navigateToApiKeys(page: Page) {
-  await page.goto('/web#action=foggy_mcp.action_foggy_api_key');
-  await page.waitForLoadState('networkidle');
+  await page.goto('/web#action=foggy_mcp.foggy_my_api_key_action', {
+    waitUntil: 'domcontentloaded',
+  });
+  await expect(page.locator('.o_list_view').or(page.locator('.o_kanban_view')))
+    .toBeVisible({ timeout: 20_000 });
 }
 
 /**
@@ -44,6 +38,7 @@ export async function navigateToApiKeys(page: Page) {
  */
 export async function screenshot(page: Page, name: string) {
   const dir = path.join(__dirname, '..', 'results', 'screenshots');
+  fs.mkdirSync(dir, { recursive: true });
   await page.screenshot({
     path: path.join(dir, `${name}.png`),
     fullPage: true,

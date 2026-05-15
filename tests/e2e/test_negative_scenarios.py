@@ -174,7 +174,7 @@ class TestNonExistentModel:
     def test_query_fake_model(self, odoo_url, valid_session):
         """Query a model that doesn't exist."""
         r = _rpc(valid_session, odoo_url, 'tools/call', {
-            'name': 'dataset.query_model',
+            'name': 'dataset__query_model',
             'arguments': {
                 'model': 'NonExistentFakeModel',
                 'payload': {'columns': ['name'], 'limit': 5},
@@ -235,7 +235,7 @@ class TestPositiveControl:
     def test_query_model_works(self, odoo_url, valid_session):
         """Valid query returns data."""
         r = _rpc(valid_session, odoo_url, 'tools/call', {
-            'name': 'dataset.query_model',
+            'name': 'dataset__query_model',
             'arguments': {
                 'model': 'OdooResCompanyQueryModel',
                 'payload': {'columns': ['name'], 'limit': 5},

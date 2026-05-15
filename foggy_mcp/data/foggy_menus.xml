@@ -4,5 +4,6 @@
     <menuitem id="foggy_mcp_menu_root"
               name="Foggy MCP"
               parent="base.menu_administration"
-              sequence="99"/>
+              sequence="99"
+              groups="foggy_mcp.group_foggy_mcp_user"/>
 </odoo>

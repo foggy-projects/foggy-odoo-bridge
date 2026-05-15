@@ -1,0 +1,14 @@
+.claude export-ignore
+.codex export-ignore
+CLAUDE.md export-ignore
+docs export-ignore
+tests export-ignore
+docker export-ignore
+scripts export-ignore
+build-release.sh export-ignore
+docker-compose.yml export-ignore
+docker-compose.community-smoke.yml export-ignore
+Dockerfile export-ignore
+start-foggy-mcp.sh export-ignore
+*.log export-ignore
+release export-ignore

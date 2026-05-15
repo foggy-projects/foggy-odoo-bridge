@@ -58,7 +58,7 @@ def _query_model(session, model, columns, limit=5, slice_conditions=None):
         'id': 1,
         'method': 'tools/call',
         'params': {
-            'name': 'dataset.query_model',
+            'name': 'dataset__query_model',
             'arguments': {
                 'model': model,
                 'payload': query_payload,
@@ -96,7 +96,7 @@ class TestQueryWithPermissions:
         result = _query_model(
             authed_session,
             'OdooSaleOrderQueryModel',
-            ['name', 'amountTotal'],
+            ['id', 'name'],
         )
         items = result.get('items', [])
         assert len(items) > 0, (
@@ -110,7 +110,7 @@ class TestQueryWithPermissions:
         result = _query_model(
             authed_session,
             'OdooSaleOrderQueryModel',
-            ['name', 'amountTotal'],
+            ['id', 'name'],
             limit=1,
         )
         items = result.get('items', [])
@@ -124,7 +124,7 @@ class TestQueryWithPermissions:
         result = _query_model(
             authed_session,
             'OdooPurchaseOrderQueryModel',
-            ['name'],
+            ['id', 'name'],
         )
         items = result.get('items', [])
         assert len(items) > 0, (
@@ -161,7 +161,7 @@ class TestQueryWithPermissions:
         result = _query_model(
             authed_session,
             'OdooAccountMoveQueryModel',
-            ['name'],
+            ['id', 'name'],
         )
         items = result.get('items', [])
         assert len(items) > 0, "Account moves returned 0 rows"
@@ -216,7 +216,7 @@ class TestDateFiltering:
         result = _query_model(
             authed_session,
             'OdooSaleOrderQueryModel',
-            ['name', 'amountTotal'],
+            ['id', 'name'],
             limit=5,
             slice_conditions=[
                 {'field': 'dateOrder', 'op': '>=', 'value': '2020-01-01'},
@@ -235,7 +235,7 @@ class TestDateFiltering:
         result = _query_model(
             authed_session,
             'OdooSaleOrderQueryModel',
-            ['name'],
+            ['id', 'name'],
             limit=3,
             slice_conditions=[
                 {'field': 'dateOrder', 'op': '>=', 'value': '2020-01-01T00:00:00'},

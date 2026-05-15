@@ -1,7 +1,7 @@
 <section class="oe_container">
   <div class="oe_row oe_spaced">
     <h2 class="oe_slogan" style="color:#6366f1;">Foggy MCP Gateway</h2>
-    <h3 class="oe_slogan">Let AI query your Odoo data — securely, with full permission enforcement</h3>
+    <h3 class="oe_slogan">Secure MCP access for Odoo data queries and lightweight evaluation</h3>
   </div>
 </section>
 
@@ -10,21 +10,26 @@
     <div class="oe_span12">
       <h3>What is Foggy MCP Gateway?</h3>
       <p>
-        Foggy MCP Gateway is an Odoo addon that exposes your business data to AI clients
-        (Claude Desktop, Cursor, VS Code Copilot, etc.) through the
-        <a href="https://modelcontextprotocol.io" target="_blank">Model Context Protocol (MCP)</a>.
+        Foggy MCP Gateway is an Odoo addon that exposes permission-aware business
+        data queries through the Model Context Protocol (MCP). It lets external
+        MCP clients query approved Odoo data without giving those clients direct
+        database access.
       </p>
       <p>
-        AI assistants can query your Sales Orders, Purchase Orders, Invoices, Stock Pickings,
-        HR Employees, Partners, and Companies — all while respecting Odoo's native permission system.
+        Community Edition is designed for personal users, developers, and
+        lightweight technical evaluation. It focuses on the open query engine
+        adoption path and keeps the Odoo runtime restrained: no built-in AI Chat,
+        no commercial audit workflow, and no export or governance suite.
       </p>
       <p>
-        Used as a standalone MCP gateway, this addon does not require `openai` or `anthropic`.
-        Those SDKs are only optional dependencies for the built-in AI Chat feature.
+        This release targets <strong>Odoo 17.0</strong> and uses the
+        <strong>odoo17</strong> model namespace. The addon version follows the
+        Odoo 17 series and is not a minimum Odoo server patch requirement.
       </p>
       <p>
-        Database support for this release is currently scoped to <strong>PostgreSQL</strong>.
-        MySQL is not yet an officially supported target for this Odoo bridge release and is better treated as a future <strong>v1.1</strong> milestone after dedicated validation.
+        Database support is currently scoped to <strong>PostgreSQL</strong>, the
+        standard Odoo database backend. MySQL is not an officially supported
+        target for this Odoo bridge release.
       </p>
     </div>
   </div>
@@ -35,27 +40,22 @@
     <h3 class="oe_slogan">Architecture</h3>
     <div class="oe_span12" style="text-align:center;">
       <pre style="display:inline-block; text-align:left; background:#f8f9fa; padding:20px; border-radius:8px; font-size:14px;">
-AI Client (Claude, Cursor, etc.)
+AI Client (Claude Desktop, Cursor, VS Code Copilot, etc.)
         |
         | MCP JSON-RPC
         v
-+-------------------+
-| Odoo MCP Gateway  |  &lt;-- This addon
-| (Permission Layer)|
-+-------------------+
-        |
-        | HTTP (internal network)
-        v
-+-------------------+
-| Foggy Engine      |  &lt;-- Embedded Python or external Java/Python service
-| (Query Engine)    |
-+-------------------+
++------------------------------------------------+
+| Odoo MCP Gateway + Embedded Foggy Engine       |  &lt;-- Recommended
+| API Key Auth + Odoo Permission Layer           |
++------------------------------------------------+
         |
         | SQL (read-only)
         v
-+-------------------+
-| PostgreSQL        |  &lt;-- Your Odoo database
-+-------------------+
++------------------------------------------------+
+| PostgreSQL                                     |  &lt;-- Your Odoo database
++------------------------------------------------+
+
+Optional: Odoo MCP Gateway --HTTP--&gt; self-hosted external Foggy service
       </pre>
     </div>
   </div>
@@ -67,36 +67,36 @@ AI Client (Claude, Cursor, etc.)
 
     <div class="oe_span4">
       <div style="text-align:center; padding:15px;">
-        <span style="font-size:40px;">&#x1f512;</span>
+        <span style="font-size:40px;">&#9881;</span>
+        <h4>Embedded by Default</h4>
+        <p>
+          The included Python engine can run inside the Odoo process for a simple
+          Community setup. Advanced deployments can point the gateway at a
+          self-hosted external Foggy service.
+        </p>
+      </div>
+    </div>
+
+    <div class="oe_span4">
+      <div style="text-align:center; padding:15px;">
+        <span style="font-size:40px;">&#128274;</span>
         <h4>Odoo-Native Security</h4>
         <p>
-          ir.model.access controls which data models each user can query.
-          ir.rule domains are automatically converted to SQL WHERE clauses
-          and injected server-side — AI clients cannot bypass them.
+          API keys are scoped to Odoo users. ir.model.access and ir.rule checks
+          are evaluated server-side, then injected into every query so clients
+          cannot bypass Odoo permissions.
         </p>
       </div>
     </div>
 
     <div class="oe_span4">
       <div style="text-align:center; padding:15px;">
-        <span style="font-size:40px;">&#x1f3e2;</span>
-        <h4>Multi-Company</h4>
+        <span style="font-size:40px;">&#128202;</span>
+        <h4>12 Query Models</h4>
         <p>
-          Odoo's multi-company rules (child_of / parent_of) are natively
-          supported via closure table hierarchy queries. Users only see
-          data from their allowed companies and subsidiaries.
-        </p>
-      </div>
-    </div>
-
-    <div class="oe_span4">
-      <div style="text-align:center; padding:15px;">
-        <span style="font-size:40px;">&#x1f4ca;</span>
-        <h4>7 Business Models</h4>
-        <p>
-          Pre-built query models for Sale Orders, Sale Order Lines,
-          Purchase Orders, Invoices, Stock Pickings, HR Employees,
-          and Partners — with dimensions, measures, and aggregations.
+          Pre-built Community query models cover Sales, Purchases, Accounting,
+          Inventory, Products, HR, Contacts, Companies, and CRM Leads for Odoo
+          17 evaluation scenarios.
         </p>
       </div>
     </div>
@@ -118,32 +118,32 @@ AI Client (Claude, Cursor, etc.)
         <tbody>
           <tr>
             <td><strong>Dimensions &amp; Captions</strong></td>
-            <td>Query related entity names via $caption</td>
+            <td>Query related entity names through caption fields</td>
             <td><code>partner$caption</code>, <code>company$caption</code></td>
           </tr>
           <tr>
             <td><strong>Aggregations</strong></td>
-            <td>SUM, COUNT, AVG, MIN, MAX with GROUP BY</td>
+            <td>SUM, COUNT, AVG, MIN, and MAX with grouped results</td>
             <td><code>sum(amountTotal) as total</code></td>
           </tr>
           <tr>
             <td><strong>DISTINCT</strong></td>
-            <td>Unique value enumeration</td>
-            <td><code>distinct: true, columns: ['state']</code></td>
+            <td>Enumerate unique values for exploration</td>
+            <td><code>distinct: true</code>, <code>columns: ['state']</code></td>
           </tr>
           <tr>
             <td><strong>Subtotals</strong></td>
-            <td>Automatic subtotal and grand total rows</td>
+            <td>Return subtotal and grand total rows</td>
             <td><code>withSubtotals: true</code></td>
           </tr>
           <tr>
-            <td><strong>Hierarchy Queries</strong></td>
-            <td>Closure table operators for org structure</td>
+            <td><strong>Hierarchy Filters</strong></td>
+            <td>Apply organization and company hierarchy filters</td>
             <td><code>selfAndDescendantsOf</code>, <code>selfAndAncestorsOf</code></td>
           </tr>
           <tr>
             <td><strong>Slice Filters</strong></td>
-            <td>WHERE conditions with rich operators</td>
+            <td>Use server-side WHERE conditions with common operators</td>
             <td><code>=, !=, &gt;, like, in, isNotNull</code></td>
           </tr>
         </tbody>
@@ -157,12 +157,12 @@ AI Client (Claude, Cursor, etc.)
     <h3 class="oe_slogan">Installation</h3>
     <div class="oe_span12">
       <ol style="font-size:15px; line-height:2;">
-        <li>Install this addon in your Odoo 17 instance</li>
-        <li>Deploy the <a href="https://github.com/nicholasgasior/foggy-data-mcp-bridge" target="_blank">Foggy MCP Server</a>
-            (Java, self-hosted) on your network</li>
-        <li>Configure the Foggy MCP Server URL in <strong>Settings &rarr; Foggy MCP</strong></li>
-        <li>Create an API Key for each user in <strong>Foggy MCP &rarr; API Keys</strong></li>
-        <li>Connect your AI client to <code>https://your-odoo.com/foggy-mcp/rpc</code></li>
+        <li>Install Python dependencies in the Odoo runtime: <code>asyncpg</code>, <code>pydantic</code>, and <code>PyYAML</code>.</li>
+        <li>Install this addon in an Odoo 17 instance.</li>
+        <li>Open <strong>Settings &rarr; Foggy MCP</strong> and run the setup wizard.</li>
+        <li>Use the embedded Foggy engine, or configure a self-hosted external Foggy service.</li>
+        <li>Create an API key for each allowed user in <strong>Foggy MCP &rarr; API Keys</strong>.</li>
+        <li>Connect an external MCP client to <code>https://your-odoo.com/foggy-mcp/rpc</code>.</li>
       </ol>
     </div>
   </div>
@@ -175,46 +175,84 @@ AI Client (Claude, Cursor, etc.)
       <table class="table table-bordered" style="background:white;">
         <thead>
           <tr style="background:#6366f1; color:white;">
+            <th>Odoo App</th>
             <th>Odoo Model</th>
-            <th>Query Model Name</th>
+            <th>Query Model</th>
             <th>Key Dimensions</th>
           </tr>
         </thead>
         <tbody>
           <tr>
+            <td>Sales</td>
             <td>sale.order</td>
             <td>OdooSaleOrderQueryModel</td>
             <td>partner, company, salesTeam, state</td>
           </tr>
           <tr>
+            <td>Sales</td>
             <td>sale.order.line</td>
             <td>OdooSaleOrderLineQueryModel</td>
             <td>order, product, uom</td>
           </tr>
           <tr>
+            <td>Purchase</td>
             <td>purchase.order</td>
             <td>OdooPurchaseOrderQueryModel</td>
             <td>partner, company, pickingType</td>
           </tr>
           <tr>
+            <td>Accounting</td>
             <td>account.move</td>
             <td>OdooAccountMoveQueryModel</td>
             <td>partner, company, journal, moveType</td>
           </tr>
           <tr>
-            <td>stock.picking</td>
-            <td>OdooStockPickingQueryModel</td>
-            <td>partner, company, pickingType, srcLocation, destLocation</td>
+            <td>Accounting</td>
+            <td>account.payment</td>
+            <td>OdooAccountPaymentQueryModel</td>
+            <td>partner, company, paymentType, state</td>
           </tr>
           <tr>
+            <td>Accounting</td>
+            <td>account.move.line</td>
+            <td>OdooAccountMoveLineQueryModel</td>
+            <td>move, account, partner, company</td>
+          </tr>
+          <tr>
+            <td>Inventory</td>
+            <td>stock.picking</td>
+            <td>OdooStockPickingQueryModel</td>
+            <td>partner, company, pickingType, source, destination</td>
+          </tr>
+          <tr>
+            <td>Inventory</td>
+            <td>product.template</td>
+            <td>OdooProductTemplateQueryModel</td>
+            <td>category, uom, company</td>
+          </tr>
+          <tr>
+            <td>Employees</td>
             <td>hr.employee</td>
             <td>OdooHrEmployeeQueryModel</td>
             <td>department, company, job, workLocation</td>
           </tr>
           <tr>
+            <td>Contacts</td>
             <td>res.partner</td>
             <td>OdooResPartnerQueryModel</td>
             <td>company, country, state, type</td>
+          </tr>
+          <tr>
+            <td>Companies</td>
+            <td>res.company</td>
+            <td>OdooResCompanyQueryModel</td>
+            <td>parent, country, currency</td>
+          </tr>
+          <tr>
+            <td>CRM</td>
+            <td>crm.lead</td>
+            <td>OdooCrmLeadQueryModel</td>
+            <td>stage, user, team, company</td>
           </tr>
         </tbody>
       </table>
@@ -224,50 +262,170 @@ AI Client (Claude, Cursor, etc.)
 
 <section class="oe_container">
   <div class="oe_row oe_spaced">
-    <h3 class="oe_slogan">Data Privacy</h3>
+    <h3 class="oe_slogan">Community UI Screenshots</h3>
     <div class="oe_span12">
-      <div style="background:#f0fdf4; border:1px solid #86efac; border-radius:8px; padding:20px;">
-        <p style="font-size:15px;">
-          <strong>No third-party cloud services.</strong> This addon communicates only with
-          a Foggy MCP Server that you deploy and control. All data stays within your infrastructure.
-        </p>
-        <ul style="font-size:14px;">
-          <li>Odoo &harr; Foggy MCP Server: HTTP on your internal network</li>
-          <li>Foggy MCP Server &harr; PostgreSQL: Direct JDBC connection (read-only queries)</li>
-          <li>HTTPS is strongly recommended for production environments</li>
-          <li>No telemetry, no analytics, no external API calls</li>
-        </ul>
+      <p style="font-size:15px;">
+        The screenshots below are captured from a clean Community-only Odoo 17
+        runtime. They show the embedded engine setup, setup wizard, and API key
+        management screens used by external MCP clients.
+      </p>
+      <div style="display:grid; grid-template-columns:1fr; gap:22px;">
+        <div>
+          <h4>Settings: Embedded Engine</h4>
+          <img src="screenshot_settings.png" alt="Foggy MCP Settings with embedded engine mode" style="max-width:100%; border:1px solid #d9e2ef; border-radius:8px;">
+        </div>
+        <div>
+          <h4>Setup Wizard</h4>
+          <img src="screenshot_setup_wizard.png" alt="Foggy MCP setup wizard welcome step" style="max-width:100%; border:1px solid #d9e2ef; border-radius:8px;">
+        </div>
+        <div>
+          <h4>API Key Management</h4>
+          <img src="screenshot_api_keys.png" alt="Foggy MCP API key management with masked key previews" style="max-width:100%; border:1px solid #d9e2ef; border-radius:8px;">
+        </div>
       </div>
-    </div>
-  </div>
-</section>
-
-<section class="oe_container oe_dark">
-  <div class="oe_row oe_spaced">
-    <h3 class="oe_slogan">Requirements</h3>
-    <div class="oe_span12">
-      <ul style="font-size:15px; line-height:2;">
-        <li><strong>Odoo 17</strong> Community or Enterprise</li>
-        <li><strong>Foggy Engine</strong> &mdash; embedded Python engine, or external Foggy Java / Python service</li>
-        <li><strong>External Foggy Java server</strong> (optional, Java 17+) &mdash;
-            <a href="https://github.com/nicholasgasior/foggy-data-mcp-bridge" target="_blank">Download</a></li>
-        <li><strong>PostgreSQL 12+</strong> (shared with Odoo, current validated database target)</li>
-        <li><strong>MySQL</strong> is not yet an officially supported database target for this release</li>
-        <li>No `openai` / `anthropic` dependency is required for standalone MCP usage</li>
-        <li>Built-in AI Chat optionally requires `openai` and/or `anthropic`</li>
-      </ul>
     </div>
   </div>
 </section>
 
 <section class="oe_container">
   <div class="oe_row oe_spaced">
-    <h3 class="oe_slogan">Support &amp; Documentation</h3>
+    <h3 class="oe_slogan">Community Positioning</h3>
+    <div class="oe_span12">
+      <table class="table table-bordered" style="background:white;">
+        <thead>
+          <tr style="background:#6366f1; color:white;">
+            <th>Need</th>
+            <th>Community Edition</th>
+            <th>Commercial Edition</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Personal Odoo MCP evaluation</td>
+            <td>Included</td>
+            <td>Included</td>
+          </tr>
+          <tr>
+            <td>Embedded local query engine</td>
+            <td>Included</td>
+            <td>Included</td>
+          </tr>
+          <tr>
+            <td>External MCP clients</td>
+            <td>Included</td>
+            <td>Included</td>
+          </tr>
+          <tr>
+            <td>Built-in AI Chat inside Odoo</td>
+            <td>Not included</td>
+            <td>Commercial capability</td>
+          </tr>
+          <tr>
+            <td>Export, audit, and governance workflows</td>
+            <td>Not included</td>
+            <td>Commercial capability</td>
+          </tr>
+          <tr>
+            <td>Production support and managed onboarding</td>
+            <td>Best-effort community maintenance</td>
+            <td>Commercial support path</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section class="oe_container oe_dark">
+  <div class="oe_row oe_spaced">
+    <h3 class="oe_slogan">Data Handling</h3>
+    <div class="oe_span12">
+      <div style="background:#f0fdf4; border:1px solid #86efac; border-radius:8px; padding:20px;">
+        <p style="font-size:15px;">
+          <strong>No third-party cloud calls are made by this addon.</strong>
+          In embedded mode, query execution runs inside the Odoo process and
+          reads the Odoo PostgreSQL database directly. In gateway mode, requests
+          are forwarded only to the self-hosted Foggy service that you configure.
+        </p>
+        <ul style="font-size:14px;">
+          <li>Odoo permissions are applied before every query reaches the engine.</li>
+          <li>HTTPS is recommended for any exposed Odoo endpoint.</li>
+          <li>No telemetry, analytics, or external provider SDK is required by the addon.</li>
+          <li>External MCP clients remain subject to your own client and provider settings.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="oe_container">
+  <div class="oe_row oe_spaced">
+    <h3 class="oe_slogan">Requirements</h3>
+    <div class="oe_span12">
+      <ul style="font-size:15px; line-height:2;">
+        <li><strong>Odoo 17.0</strong> Community or Enterprise</li>
+        <li><strong>PostgreSQL 12+</strong> as the validated database target</li>
+        <li><strong>Python dependencies</strong>: <code>asyncpg</code>, <code>pydantic</code>, <code>PyYAML</code></li>
+        <li><strong>Foggy Engine</strong>: embedded Python engine by default, optional self-hosted external service</li>
+        <li><strong>No provider SDK dependency</strong>: no OpenAI or Anthropic package is required by this addon</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="oe_container oe_dark">
+  <div class="oe_row oe_spaced">
+    <h3 class="oe_slogan">FAQ</h3>
+    <div class="oe_span12">
+      <h4>Do I need a separate Foggy server?</h4>
+      <p>No. The embedded Python engine is the recommended Community setup.</p>
+
+      <h4>Can I use a separate self-hosted Foggy service?</h4>
+      <p>Yes. Use gateway mode when you want an external service boundary that you operate yourself.</p>
+
+      <h4>Does this addon include built-in AI Chat?</h4>
+      <p>No. Community exposes MCP tools for external clients; in-Odoo chat is a commercial capability.</p>
+
+      <h4>Does the addon send data to a third-party LLM provider?</h4>
+      <p>No. External clients and their provider settings are controlled outside this addon.</p>
+    </div>
+  </div>
+</section>
+
+<section class="oe_container">
+  <div class="oe_row oe_spaced">
+    <h3 class="oe_slogan">Version History</h3>
+    <div class="oe_span12">
+      <table class="table table-bordered" style="background:white;">
+        <thead>
+          <tr style="background:#6366f1; color:white;">
+            <th>Version</th>
+            <th>Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>17.0.1.5.0</td>
+            <td>Odoo 17 namespace, embedded Community engine, 12 query models, API key gateway, and Odoo Apps readiness cleanup.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section class="oe_container">
+  <div class="oe_row oe_spaced">
+    <h3 class="oe_slogan">Support, Privacy &amp; Terms</h3>
     <div class="oe_span12" style="text-align:center;">
       <p style="font-size:15px;">
-        <a href="https://github.com/nicholasgasior/foggy-data-mcp-bridge" target="_blank">GitHub Repository</a> |
-        <a href="https://github.com/nicholasgasior/foggy-data-mcp-bridge/issues" target="_blank">Issue Tracker</a> |
-        Apache 2.0 License
+        Documentation and source code are included with the addon. Community
+        maintenance is best-effort. The addon is distributed under Apache 2.0,
+        represented in the Odoo manifest as <strong>Other OSI approved licence</strong>.
+      </p>
+      <p style="font-size:14px;">
+        External MCP clients, infrastructure services, and AI providers remain
+        subject to your own provider agreements and deployment choices.
       </p>
     </div>
   </div>

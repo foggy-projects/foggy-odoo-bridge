@@ -4,7 +4,7 @@ import json
 import sys
 
 FOGGY_URL = sys.argv[1] if len(sys.argv) > 1 else 'http://localhost:7108'
-NAMESPACE = sys.argv[2] if len(sys.argv) > 2 else 'odoo'
+NAMESPACE = sys.argv[2] if len(sys.argv) > 2 else 'odoo17'
 
 def call_tool(tool_name, arguments):
     r = requests.post(f'{FOGGY_URL}/mcp/admin/rpc', json={

@@ -1,0 +1,79 @@
+# Community-only runtime smoke environment.
+# Usage:
+#   docker compose -p foggy-community-smoke -f docker-compose.community-smoke.yml run --rm odoo-init
+#   docker compose -p foggy-community-smoke -f docker-compose.community-smoke.yml up -d odoo
+#
+# This file intentionally mounts only the Community addon path. Do not add
+# foggy-odoo-bridge-pro or any other Pro addon path here.
+
+x-odoo-common: &odoo-common
+  build: .
+  image: foggy-odoo-community-smoke:17.0
+  depends_on:
+    postgres:
+      condition: service_healthy
+  environment:
+    HOST: postgres
+    USER: odoo
+    PASSWORD: odoo
+  volumes:
+    - ./foggy_mcp:/mnt/extra-addons/foggy_mcp:ro
+    - community-smoke-odoo-data:/var/lib/odoo
+
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: odoo
+      POSTGRES_PASSWORD: odoo
+      POSTGRES_DB: community_smoke
+    volumes:
+      - community-smoke-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U odoo -d community_smoke"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  odoo-init:
+    <<: *odoo-common
+    profiles: ["init"]
+    command:
+      - odoo
+      - -d
+      - community_smoke
+      - -i
+      - foggy_mcp
+      - --stop-after-init
+      - --without-demo=all
+      - --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/mnt/extra-addons
+      - --db_host=postgres
+      - --db_port=5432
+      - --db_user=odoo
+      - --db_password=odoo
+
+  odoo:
+    <<: *odoo-common
+    ports:
+      - "8077:8069"
+    command:
+      - odoo
+      - -d
+      - community_smoke
+      - --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/mnt/extra-addons
+      - --db_host=postgres
+      - --db_port=5432
+      - --db_user=odoo
+      - --db_password=odoo
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:8069/web/health', timeout=5).read()"
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+volumes:
+  community-smoke-pgdata:
+  community-smoke-odoo-data:

@@ -19,6 +19,18 @@ from odoo.exceptions import UserError
 _logger = logging.getLogger(__name__)
 
 
+def _sync_foggy_namespace_config(env, *, strict=False):
+    try:
+        from ..services.odoo_namespace import sync_configured_foggy_namespace
+
+        return sync_configured_foggy_namespace(env)
+    except Exception as exc:
+        if strict:
+            raise UserError(_("Invalid Foggy namespace configuration: %s") % exc)
+        _logger.warning("Foggy namespace config sync skipped: %s", exc)
+        return None
+
+
 class ResConfigSettings(models.TransientModel):
     _inherit = 'res.config.settings'
 
@@ -66,8 +78,8 @@ class ResConfigSettings(models.TransientModel):
     foggy_mcp_namespace = fields.Char(
         string='Namespace',
         config_parameter='foggy_mcp.namespace',
-        default='odoo',
-        help='Namespace for Odoo models in Foggy (X-NS header value).',
+        default='odoo17',
+        help='Explicit Foggy namespace for this Odoo major version (for example: odoo17).',
     )
     foggy_mcp_cache_ttl = fields.Integer(
         string='Tool Cache TTL (seconds)',
@@ -79,53 +91,6 @@ class ResConfigSettings(models.TransientModel):
         string='Auth Token',
         config_parameter='foggy_mcp.auth_token',
         help='Bearer token used to authenticate with the Foggy MCP Server. Leave empty if server-side auth is disabled.',
-    )
-
-    foggy_llm_provider = fields.Selection([
-        ('openai', 'OpenAI-compatible (OpenAI / DeepSeek / Ollama / vLLM / more)'),
-        ('anthropic', 'Anthropic (Claude)'),
-    ], string='LLM Provider',
-        config_parameter='foggy_mcp.llm_provider',
-        default='openai',
-        help='AI model provider for the built-in chat feature.\n'
-             'OpenAI-compatible covers providers that expose an OpenAI-style API, including OpenAI, DeepSeek, Ollama, and vLLM.\n'
-             'Anthropic uses the native Claude API.',
-    )
-    foggy_llm_api_key = fields.Char(
-        string='LLM API Key',
-        config_parameter='foggy_mcp.llm_api_key',
-        help='API key for the selected LLM provider. Not required for Ollama.',
-    )
-    foggy_llm_model = fields.Char(
-        string='Model Name',
-        config_parameter='foggy_mcp.llm_model',
-        default='gpt-4o-mini',
-        help='Model identifier.\n'
-             'OpenAI-compatible examples: gpt-4o, gpt-4o-mini, deepseek-chat, llama3.\n'
-             'Anthropic examples: claude-3-5-sonnet-20241022, claude-3-haiku-20240307.',
-    )
-    foggy_llm_base_url = fields.Char(
-        string='API Base URL',
-        config_parameter='foggy_mcp.llm_base_url',
-        help='Optional custom API endpoint.\n'
-             'DeepSeek example: https://api.deepseek.com\n'
-             'Ollama example: http://localhost:11434/v1\n'
-             'Leave empty for the official OpenAI API.',
-    )
-    foggy_llm_temperature = fields.Float(
-        string='Temperature',
-        config_parameter='foggy_mcp.llm_temperature',
-        default=0.3,
-        help='Controls randomness. Lower values are more deterministic; higher values are more creative. (0.0 - 1.0)',
-    )
-    foggy_llm_custom_prompt = fields.Char(
-        string='Business Context & Custom Rules',
-        config_parameter='foggy_mcp.llm_custom_prompt',
-        help='Custom content injected into the AI system prompt. You can add:\n'
-             '- Business term definitions (for example: "Enterprise account = annual revenue above 500k")\n'
-             '- Extra answer rules (for example: "Hide employee mobile numbers in responses")\n'
-             '- Company-specific context (for example: "Fiscal year starts in April")\n\n'
-             'Core safety rules still apply and cannot be overridden.',
     )
 
     foggy_connection_status = fields.Text(
@@ -241,11 +206,20 @@ class ResConfigSettings(models.TransientModel):
         ICP = self.env['ir.config_parameter'].sudo()
         old_mode = ICP.get_param('foggy_mcp.engine_mode', 'embedded')
         res = super().set_values()
+        _sync_foggy_namespace_config(self.env, strict=True)
         new_mode = ICP.get_param('foggy_mcp.engine_mode', 'embedded')
         if old_mode != new_mode:
             _logger.info("Engine mode changed: %s -> %s; resetting singletons", old_mode, new_mode)
             from ..controllers.mcp_controller import _reset_singletons
             _reset_singletons()
+        return res
+
+    def get_values(self):
+        """Normalize the namespace so settings display the runtime profile."""
+        res = super().get_values()
+        resolved_namespace = _sync_foggy_namespace_config(self.env)
+        if resolved_namespace:
+            res['foggy_mcp_namespace'] = resolved_namespace
         return res
 
     def action_test_connection(self):

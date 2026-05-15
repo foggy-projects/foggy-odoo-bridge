@@ -17,16 +17,15 @@
 
 ## 依赖说明
 
-| 场景 | Odoo Python 环境额外依赖 |
-|---|---|
-| 仅作为 MCP 服务使用，不启用内置 AI Chat | 无 |
-| 启用内置 AI Chat，使用 OpenAI 兼容接口 | `openai` |
-| 启用内置 AI Chat，使用 Anthropic / Claude | `anthropic` |
+Community Edition 不内置 AI Chat。Odoo 环境中不需要安装 `openai` 或 `anthropic`；外部 MCP 客户端的模型/provider 依赖由客户端自身管理。
 
-说明：
+内嵌模式需要在 Odoo Python 环境中安装以下运行时依赖：
 
-- 如果你只是把本插件作为 MCP 服务，供 Claude Desktop、Cursor 等外部 AI 客户端连接，则 **不需要** 安装 `openai` 或 `anthropic`
-- `openai` / `anthropic` 仅在使用 Odoo 内置 **AI Chat** 功能时才需要
+```bash
+pip install -r requirements.txt
+```
+
+这会安装 `asyncpg`、`pydantic` 和 `PyYAML`。Odoo manifest 检查的是 import 名 `asyncpg`、`pydantic` 和 `yaml`。仓库内 Dockerfile 只安装同一组运行时依赖，不会安装 AI provider SDK。
 
 ---
 
@@ -58,10 +57,6 @@ cp -r foggy_mcp /path/to/odoo/addons/
 2. 点击 **Update Apps List**
 3. 搜索 `foggy_mcp` -> 点击 **Install**
 
-> 如果只使用独立 MCP 服务能力，到这里仍然不需要安装 `openai` / `anthropic`。
-
----
-
 ## Setup Wizard 配置向导
 
 安装完成后，进入 **Settings -> Foggy MCP -> Setup Wizard**，按向导完成配置。
@@ -75,58 +70,6 @@ cp -r foggy_mcp /path/to/odoo/addons/
 点击 **Finish**，继续进入 API Key 页面。
 
 无需部署外部服务 — 查询引擎运行在 Odoo 进程内。
-
----
-
-## 可选：启用内置 AI Chat
-
-只有在你要直接在 Odoo 内使用 **Foggy AI Chat** 时，才需要安装 LLM SDK：
-
-**标准（非 Docker）环境：**
-
-```bash
-# OpenAI / DeepSeek / Ollama / 其他 OpenAI 兼容接口
-pip install openai
-
-# Anthropic / Claude
-pip install anthropic
-```
-
-**Docker 环境：**
-
-项目自带的 `Dockerfile` 在构建时已自动安装 `openai` 和 `anthropic`。如果你通过 `docker compose up -d` 启动，这些包已经可用。
-
-需要重新构建时（如升级 SDK 版本）：
-
-```bash
-docker compose build odoo
-docker compose up -d
-```
-
-**备选方案：直接修改 `docker-compose.yml`**（无需构建自定义镜像）：
-
-```yaml
-odoo:
-  image: odoo:17.0                    # 直接使用官方镜像
-  # ...
-  command: >
-    bash -c "pip install openai anthropic &&
-    exec odoo --database=odoo_demo
-    --addons-path=/mnt/extra-addons
-    --db_host=postgres --db_port=5432
-    --db_user=odoo --db_password=odoo"
-```
-
-每次容器启动时自动安装，无需构建镜像。
-
-**快速临时安装**（**重启后失效**）：
-
-```bash
-docker exec foggy-odoo pip install openai anthropic
-docker restart foggy-odoo
-```
-
-如果不使用 AI Chat，可跳过本节。
 
 ---
 
@@ -158,6 +101,8 @@ curl -s http://localhost:8069/foggy-mcp/rpc \
 
 ### Claude Desktop / Cursor
 
+对于支持 Streamable HTTP / remote MCP server 的客户端：
+
 ```json
 {
   "mcpServers": {
@@ -173,9 +118,11 @@ curl -s http://localhost:8069/foggy-mcp/rpc \
 
 自然语言查询示例：
 
-- “显示最近 10 笔销售订单”
-- “按客户汇总销售额”
-- “本月新建了多少采购单”
+- "List the available Odoo query models."
+- "Show the latest 10 sales orders with customer names and total amounts."
+- "Summarize sales order revenue by customer."
+- "Which invoices are still unpaid?"
+- "Show recent inventory transfers by status."
 
 ---
 
@@ -188,7 +135,7 @@ AI Client
 Odoo (foggy_mcp 插件)
     │ 权限过滤 (ir.rule -> DSL slice)
     ▼
-Foggy MCP Server
+Embedded Foggy engine
     │ SQL
     ▼
 PostgreSQL (Odoo 数据库)
@@ -225,7 +172,13 @@ docker restart foggy-odoo
 
 ## 故障排查
 
-### Foggy MCP Server 连接失败
+### 内嵌引擎依赖检查失败
+
+1. 确认 Odoo Python 环境中可以 import `asyncpg`、`pydantic` 和 `yaml`
+2. 如果是手动安装 release zip，请先执行 `pip install -r requirements.txt`，再升级模块
+3. 安装依赖后重启 Odoo
+
+### 网关模式连接失败
 
 1. 确认服务运行：`curl http://localhost:7108/actuator/health`
 2. 检查数据库连接配置是否正确

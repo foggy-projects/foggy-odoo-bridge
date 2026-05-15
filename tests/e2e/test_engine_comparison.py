@@ -72,7 +72,7 @@ TEST_SCENARIOS = [
         'name': '基础查询：CRM 线索',
         'category': '基础查询',
         'model': 'OdooCrmLeadQueryModel',
-        'payload': {'columns': ['name'], 'limit': 5},
+        'payload': {'columns': ['id', 'name'], 'limit': 5},
         'expect_min_rows': 1,
     },
     {
@@ -168,7 +168,7 @@ TEST_SCENARIOS = [
         'category': '排序',
         'model': 'OdooCrmLeadQueryModel',
         'payload': {
-            'columns': ['name', 'expectedRevenue'],
+            'columns': ['id', 'name', 'expectedRevenue'],
             'orderBy': [{'field': 'expectedRevenue', 'direction': 'DESC'}],
             'limit': 5,
         },
@@ -308,7 +308,7 @@ def _query(session, model, payload):
     """Execute a query and return parsed result."""
     start = time.time()
     result = _call_mcp(session, 'tools/call', {
-        'name': 'dataset.query_model',
+        'name': 'dataset__query_model',
         'arguments': {'model': model, 'payload': payload},
     })
     duration = (time.time() - start) * 1000

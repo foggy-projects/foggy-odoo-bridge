@@ -2,6 +2,7 @@
  * Global setup: login to Odoo and save auth state for all tests.
  */
 import { chromium, FullConfig } from '@playwright/test';
+import fs from 'fs';
 import path from 'path';
 
 const STORAGE_STATE = path.join(__dirname, '.auth', 'admin.json');
@@ -32,6 +33,7 @@ async function globalSetup(config: FullConfig) {
   await page.waitForURL('**/web**', { timeout: 30_000 });
 
   // Save auth state
+  fs.mkdirSync(path.dirname(STORAGE_STATE), { recursive: true });
   await page.context().storageState({ path: STORAGE_STATE });
 
   await browser.close();

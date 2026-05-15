@@ -202,22 +202,9 @@ ir.rule.domain_force (波兰表达式)
 - 自动检测 Docker 网络配置
 - 生成适配当前环境的 Docker 命令
 
-### 3.8 LLM Service (`llm_service.py`)
+### 3.8 Community AI Chat Boundary
 
-**职责**: 内置 AI 聊天功能，直接在 Odoo 中与数据对话
-
-**支持的 LLM 提供商** (直连 SDK，无 litellm 依赖):
-- OpenAI 兼容（OpenAI / DeepSeek / Ollama / vLLM 等） — 通过 `openai` SDK
-- Anthropic (Claude) — 通过 `anthropic` SDK
-
-**流程**:
-```
-用户消息 → 构建系统提示（可用模型列表）
-         → 调用 LLM (openai/anthropic SDK)
-         → LLM 返回 tool_use → 执行 Foggy 工具（含权限注入）
-         → 工具结果返回 LLM
-         → 最终回复
-```
+Community Edition 不内置 AI Chat，不在 Odoo 内保存 LLM provider、API key、模型名或对话历史。自然语言交互由 Claude Desktop、Cursor 等外部 MCP 客户端负责，Community 只提供受 Odoo 权限约束的 MCP 查询入口。
 
 ---
 
@@ -228,7 +215,7 @@ ir.rule.domain_force (波兰表达式)
 | 方式 | 场景 | 权限范围 |
 |------|------|----------|
 | API Key | AI 客户端 (Claude Desktop) | 绑定的 Odoo 用户权限 |
-| Session | Web 客户端 (Odoo 内置聊天) | 当前登录用户权限 |
+| Session | Odoo Web 管理界面 | 当前登录用户权限 |
 
 ### 4.2 授权层
 
@@ -290,24 +277,9 @@ WHERE c.parent_id = 1
 
 ---
 
-## 6. 内置 AI 聊天
+## 6. Community / Pro 边界
 
-### 6.1 功能
-
-- 直接在 Odoo Web 界面与数据对话
-- 支持多轮对话、历史记录
-- 自动权限注入
-
-### 6.2 配置
-
-| 参数 | 路径 | 说明 |
-|------|------|------|
-| LLM Provider | Settings → Foggy MCP → AI Chat | OpenAI / Anthropic / DeepSeek / Ollama |
-| API Key | 同上 | LLM API Key |
-| Model | 同上 | gpt-4o-mini, claude-3-haiku 等 |
-| Base URL | 同上 | 自定义端点 (Ollama) |
-| Temperature | 同上 | 生成随机性 |
-| Custom Prompt | 同上 | 业务上下文提示 |
+Community Edition 面向个人用户、开发者和轻量技术评估，保留 MCP 端点、API Key、权限注入、内嵌/网关引擎配置和基础 Odoo TM/QM 模型。Odoo 内置 AI Chat、对话历史、LLM provider 配置、导出审计、商业治理工作流和 AI 回答可信度分析不在 Community 中提供，应作为 Pro 或 Pro future 能力规划。
 
 ---
 
@@ -318,7 +290,7 @@ WHERE c.parent_id = 1
 | `foggy_mcp.server_url` | `http://foggy-mcp:8080` | Foggy MCP Server URL |
 | `foggy_mcp.endpoint_path` | `/mcp/analyst/rpc` | MCP 端点路径 |
 | `foggy_mcp.request_timeout` | `30` | HTTP 超时 (秒) |
-| `foggy_mcp.namespace` | `odoo` | 模型命名空间 |
+| `foggy_mcp.namespace` | `odoo17` | 模型命名空间 |
 | `foggy_mcp.cache_ttl` | `300` | 工具缓存 TTL (秒) |
 | `foggy_mcp.auth_token` | - | Foggy Bearer Token |
 
@@ -371,8 +343,6 @@ MODEL_MAPPING['my.custom.model'] = 'MyCustomQueryModel'
 - `crm`
 
 ### Python 包
-- `openai` - OpenAI 兼容 LLM 调用 (可选，用于 AI Chat)
-- `anthropic` - Anthropic Claude 调用 (可选，用于 AI Chat)
 - `requests` - HTTP 客户端
 
 ---

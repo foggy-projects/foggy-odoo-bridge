@@ -9,8 +9,8 @@
 #   1  pro content detected
 #
 # This script scans the community model directory for known pro-only model
-# files. If any are found, it exits with non-zero to prevent accidental
-# pro content leakage into the public community repository.
+# files and identifiers. If any are found, it exits with non-zero to prevent
+# accidental pro content leakage into the public community repository.
 
 set -euo pipefail
 
@@ -25,6 +25,22 @@ PRO_ONLY_FILES=(
   "model/OdooProjectTaskModel.tm"
   "query/OdooMrpProductionQueryModel.qm"
   "query/OdooProjectTaskQueryModel.qm"
+)
+
+# Known pro-only identifiers and Odoo technical names. These catch generated
+# dictionary entries, comments, or future model metadata even when filenames
+# remain community-looking.
+PRO_ONLY_PATTERNS=(
+  "OdooMrpProduction"
+  "OdooProjectTask"
+  "MrpProduction"
+  "ProjectTask"
+  "MrpBom"
+  "MrpWorkorder"
+  "mrp_production"
+  "project_task"
+  "mrp.production"
+  "project.task"
 )
 
 echo "=== check-no-pro-content ==="
@@ -52,6 +68,18 @@ while IFS= read -r -d '' file; do
       ;;
   esac
 done < <(find "$MODEL_DIR/model" "$MODEL_DIR/query" -type f \( -name "*.tm" -o -name "*.qm" \) -print0 2>/dev/null || true)
+
+# Scan text model bundle files for pro-only identifiers. Keep this focused on
+# generated model artifacts so docs can still explain the Community/Pro boundary.
+while IFS= read -r -d '' file; do
+  rel="${file#"$MODEL_DIR/"}"
+  for pattern in "${PRO_ONLY_PATTERNS[@]}"; do
+    if grep -q "$pattern" "$file"; then
+      echo "FAIL: Pro-only identifier '$pattern' found in model bundle: $rel" >&2
+      FOUND_PRO=true
+    fi
+  done
+done < <(find "$MODEL_DIR" -type f \( -name "*.tm" -o -name "*.qm" -o -name "*.fsscript" -o -name "*.md" \) -print0 2>/dev/null || true)
 
 if $FOUND_PRO; then
   echo "" >&2

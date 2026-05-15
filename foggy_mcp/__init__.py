@@ -32,22 +32,19 @@ def post_init_hook(env):
     _logger.info("Foggy MCP Gateway: Running post-init hook...")
 
     cr = env.cr
+    from .services.odoo_namespace import resolve_foggy_namespace, sync_configured_foggy_namespace
+
+    foggy_namespace = resolve_foggy_namespace(env)
 
     # Set default config parameters if not exists
     default_params = {
         'foggy_mcp.server_url': '',
         'foggy_mcp.endpoint_path': '/mcp/analyst/rpc',
         'foggy_mcp.request_timeout': '30',
-        'foggy_mcp.namespace': 'odoo',
+        'foggy_mcp.namespace': foggy_namespace,
         'foggy_mcp.cache_ttl': '300',
         'foggy_mcp.auth_token': '',
         'foggy_mcp.engine_mode': 'embedded',
-        'foggy_mcp.llm_provider': 'openai',
-        'foggy_mcp.llm_api_key': '',
-        'foggy_mcp.llm_model': 'gpt-4o-mini',
-        'foggy_mcp.llm_base_url': '',
-        'foggy_mcp.llm_temperature': '0.3',
-        'foggy_mcp.llm_custom_prompt': '',
     }
 
     try:
@@ -61,6 +58,8 @@ def post_init_hook(env):
                     VALUES (%s, %s)
                 """, (key, default_value))
                 _logger.debug("Created config parameter: %s", key)
+
+        sync_configured_foggy_namespace(env)
 
         # ── Initialize closure tables and date dimension ──
         _init_auxiliary_tables(cr)

@@ -11,6 +11,8 @@ import uuid
 
 import requests
 
+from .odoo_namespace import resolve_configured_foggy_namespace
+
 _logger = logging.getLogger(__name__)
 
 
@@ -32,8 +34,7 @@ class FoggyClient:
         base_url = ICP.get_param('foggy_mcp.server_url', '')
         endpoint_path = ICP.get_param('foggy_mcp.endpoint_path', '/mcp/analyst/rpc')
         timeout = int(ICP.get_param('foggy_mcp.request_timeout', '30'))
-        # Handle empty string - treat as default namespace (empty string, not 'odoo')
-        namespace = ICP.get_param('foggy_mcp.namespace', '') or ''
+        namespace = resolve_configured_foggy_namespace(env)
         auth_token = ICP.get_param('foggy_mcp.auth_token', '')
 
         if not base_url:
@@ -152,8 +153,7 @@ class FoggyClient:
             'X-Request-Id': str(uuid.uuid4()),
         }
 
-        # Only add X-NS header if namespace is non-empty
-        # Empty namespace means use default namespace on Java side
+        # Explicit Odoo-version namespace is required for Java/Python parity.
         if self.namespace and self.namespace.strip():
             headers['X-NS'] = self.namespace
 

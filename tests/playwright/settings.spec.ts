@@ -4,7 +4,7 @@
  * Covers:
  * - Tab visibility and layout
  * - Engine mode radio buttons
- * - LLM configuration fields
+ * - Community-only AI Chat/LLM absence
  * - Setup Wizard launch
  */
 import { test, expect } from '@playwright/test';
@@ -19,37 +19,21 @@ test.describe('Settings → Foggy MCP', () => {
   });
 
   test('Foggy MCP tab is visible', async ({ page }) => {
-    const tab = page.locator('.app_settings_header .tab', { hasText: 'Foggy MCP' });
-    await expect(tab).toBeVisible();
+    await expect(page.getByText('Foggy MCP').first()).toBeVisible();
+    await expect(page.getByText('Engine Mode').first()).toBeVisible();
     await screenshot(page, 'settings-foggy-tab');
   });
 
   test('Engine mode radio buttons are present', async ({ page }) => {
-    // Should have two radio options: embedded and gateway
-    const radios = page.locator('input[type="radio"][name="engine_mode"]');
-    // If custom widget, look for radio-like elements
-    const embeddedLabel = page.locator('text=内嵌模式').or(page.locator('text=Embedded'));
-    const gatewayLabel = page.locator('text=网关模式').or(page.locator('text=Gateway'));
-
-    const hasEmbedded = await embeddedLabel.isVisible();
-    const hasGateway = await gatewayLabel.isVisible();
-
-    expect(hasEmbedded || hasGateway).toBeTruthy();
+    await expect(page.getByText(/Embedded/i).first()).toBeVisible();
+    await expect(page.getByText(/Gateway/i).first()).toBeVisible();
     await screenshot(page, 'settings-engine-mode');
   });
 
-  test('LLM configuration section is visible', async ({ page }) => {
-    // Check for AI Chat configuration fields
-    const providerLabel = page.locator('text=Provider').or(page.locator('text=提供商'));
-    const apiKeyLabel = page.locator('label', { hasText: /API.*Key/i }).or(
-      page.locator('label', { hasText: '密钥' })
-    );
-
-    const hasProvider = await providerLabel.isVisible();
-    const hasApiKey = await apiKeyLabel.isVisible();
-
-    expect(hasProvider || hasApiKey).toBeTruthy();
-    await screenshot(page, 'settings-llm-config');
+  test('AI Chat and LLM configuration are absent in Community', async ({ page }) => {
+    const proOnlyText = page.getByText(/AI Chat|LLM Provider|OpenAI|Anthropic|Foggy AI/i);
+    await expect(proOnlyText).toHaveCount(0);
+    await screenshot(page, 'settings-no-ai-chat-llm-config');
   });
 
   test('Setup Wizard button is clickable', async ({ page }) => {

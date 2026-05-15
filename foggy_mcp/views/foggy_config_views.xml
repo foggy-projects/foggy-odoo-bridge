@@ -140,59 +140,6 @@
                             </div>
                         </setting>
                     </block>
-                    <block title="AI Chat (LLM Settings)">
-                        <setting string="LLM Provider" help="Select the model provider used by the built-in AI chat feature">
-                            <div class="content-group">
-                                <div class="row mt16">
-                                    <label for="foggy_llm_provider" class="col-lg-3"/>
-                                    <field name="foggy_llm_provider" class="col-lg-4"/>
-                                </div>
-                            </div>
-                        </setting>
-                        <setting string="API Key" help="API key for the selected LLM provider">
-                            <div class="content-group">
-                                <div class="row mt16">
-                                    <label for="foggy_llm_api_key" class="col-lg-3"/>
-                                    <field name="foggy_llm_api_key" class="col-lg-6" password="True"/>
-                                </div>
-                            </div>
-                        </setting>
-                        <setting string="Model Name" help="Model identifier, for example gpt-4o-mini, claude-3-5-sonnet-20241022, or deepseek-chat">
-                            <div class="content-group">
-                                <div class="row mt16">
-                                    <label for="foggy_llm_model" class="col-lg-3"/>
-                                    <field name="foggy_llm_model" class="col-lg-4"
-                                           placeholder="gpt-4o-mini"/>
-                                </div>
-                            </div>
-                        </setting>
-                        <setting string="API Base URL" help="Custom endpoint URL for non-default providers such as DeepSeek or Ollama">
-                            <div class="content-group">
-                                <div class="row mt16">
-                                    <label for="foggy_llm_base_url" class="col-lg-3"/>
-                                    <field name="foggy_llm_base_url" class="col-lg-6"
-                                           placeholder="http://localhost:11434/v1"/>
-                                </div>
-                            </div>
-                        </setting>
-                        <setting string="Temperature" help="Controls randomness (0.0 = deterministic, 1.0 = creative)">
-                            <div class="content-group">
-                                <div class="row mt16">
-                                    <label for="foggy_llm_temperature" class="col-lg-3"/>
-                                    <field name="foggy_llm_temperature" class="col-lg-2"/>
-                                </div>
-                            </div>
-                        </setting>
-                        <setting string="Business Context &amp; Custom Rules"
-                                 help="Custom instructions injected into every AI chat. Use this for business terms, KPIs, and answer rules. Core safety rules still apply.">
-                            <div class="content-group">
-                                <div class="mt16">
-                                    <field name="foggy_llm_custom_prompt" widget="text"
-                                           placeholder="Example:&#10;&#10;## Business terms&#10;- Enterprise account = annual revenue above 500k&#10;- Active customer = at least one order in the last 90 days&#10;- Fiscal year starts in April&#10;&#10;## Extra rules&#10;- Hide employee mobile numbers&#10;- Use CNY as the default currency&#10;- R&amp;D includes QA and DevOps"/>
-                                </div>
-                            </div>
-                        </setting>
-                    </block>
                 </app>
             </xpath>
         </field>

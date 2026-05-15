@@ -33,9 +33,6 @@ test.describe('API Key Management', () => {
   });
 
   test('New button is available', async ({ page }) => {
-    const newBtn = page.locator('button.o_list_button_add').or(
-      page.locator('button', { hasText: /New|新建/ })
-    );
-    await expect(newBtn).toBeVisible();
+    await expect(page.getByRole('button', { name: /New|新建/ }).first()).toBeVisible();
   });
 });

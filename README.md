@@ -2,11 +2,13 @@
 
 [English](./README.md) | [简体中文](./README.zh-CN.md)
 
-Governed MCP access to Odoo data with Odoo permission preservation and built-in AI chat.
+Governed MCP access to Odoo data with Odoo permission preservation.
 
-Foggy Odoo Bridge is an Odoo addon that lets Claude, Cursor, built-in Odoo AI Chat, and other MCP clients query Odoo business data without bypassing Odoo permissions.
+Foggy Odoo Bridge is an Odoo addon that lets Claude, Cursor, and other MCP clients query Odoo business data without bypassing Odoo permissions.
 
-This repository is the Community Edition baseline. It focuses on the core governed MCP workflow, the Odoo permission bridge, and a practical starter feature set for evaluation and developer adoption.
+This repository is the Community Edition baseline. It is designed for personal users, developers, and lightweight technical evaluation. It focuses on the core governed MCP workflow, the Odoo permission bridge, and a practical starter feature set for Foggy engine adoption.
+
+Foggy Odoo Bridge Pro is the commercial edition for production Odoo teams that need built-in governed AI Chat, richer model packs, export, audit, commercial installation experience, and support.
 
 Public technical notes are kept under [`docs/`](./docs/README.md).
 
@@ -33,23 +35,34 @@ Foggy Odoo Bridge solves that by placing an Odoo-aware permission and model laye
 - Natural language analytics for Odoo through MCP
 - Odoo-aware permission injection before query execution
 - API key access for Claude Desktop and Cursor
-- Built-in AI Chat inside Odoo
 - Built-in TM/QM models for common Odoo business objects
 - Fail-closed behavior when permission evaluation fails
-- A practical governed AI data layer for Odoo
+- A practical MCP and semantic-query evaluation path for Odoo
 
 ## Dependency Notes
 
-| Scenario | Extra Python packages needed in the Odoo environment |
-|---|---|
-| MCP service only (no built-in AI Chat) | None |
-| Built-in AI Chat with OpenAI-compatible providers | `openai` |
-| Built-in AI Chat with Anthropic / Claude | `anthropic` |
+The Community Edition does not ship built-in AI Chat. You do not need `openai` or `anthropic` in the Odoo environment. External MCP clients manage their own model/provider dependencies outside Odoo.
 
-Notes:
+Embedded semantic query execution requires `asyncpg`, `pydantic`, and `PyYAML` in the Odoo Python environment. The included Dockerfile installs these runtime dependencies without adding AI provider SDKs.
 
-- If you use this addon only as an MCP service for Claude Desktop, Cursor, or other MCP clients, you do **not** need `openai` or `anthropic` in the Odoo environment.
-- `openai` / `anthropic` are only optional SDK dependencies for the built-in AI Chat feature.
+For a manual Odoo installation, install the runtime dependencies before installing or upgrading the addon:
+
+```bash
+pip install -r requirements.txt
+```
+
+## Community vs Pro
+
+| Need | Community Edition | Foggy Odoo Bridge Pro |
+|---|---|---|
+| Personal Odoo + MCP evaluation | Yes | Yes |
+| External MCP clients such as Claude Desktop / Cursor | Yes | Yes |
+| Built-in AI Chat inside Odoo | No | Yes |
+| Export, audit, and commercial governance workflows | No | Yes |
+| Richer commercial Odoo model pack | Limited | Yes |
+| Production support and Odoo Apps commercial experience | No | Yes |
+
+Community is not a limited trial of Pro. It is the open and lightweight entry point for MCP, TM/QM, and semantic-query adoption. Use Pro when the requirement is a commercial Odoo user experience with governed in-app AI workflows.
 
 ## Database Support
 
@@ -69,14 +82,6 @@ This matches the current wizard flow, SQL assets, test coverage, and verified de
 
 No external service is required — the query engine runs inside the Odoo process.
 
-### Built-in AI Chat Dependencies
-
-The built-in AI Chat feature is optional.
-
-- For OpenAI-compatible providers: `pip install openai`
-- For Anthropic / Claude: `pip install anthropic`
-- If you do not use AI Chat, you can skip both packages entirely
-
 ### Generate an API Key
 
 1. Go to Settings → Foggy MCP → API Keys
@@ -85,12 +90,12 @@ The built-in AI Chat feature is optional.
 
 ### Connect Claude Desktop
 
-Add to `claude_desktop_config.json`:
+For clients that support Streamable HTTP / remote MCP servers, add this endpoint configuration:
 
 ```json
 {
   "mcpServers": {
-    "odoo": {
+    "foggy-odoo": {
       "url": "https://your-odoo.com/foggy-mcp/rpc",
       "headers": {
         "Authorization": "Bearer fmcp_your_key_here"
@@ -102,10 +107,11 @@ Add to `claude_desktop_config.json`:
 
 Now you can ask questions like:
 
-- "Who are the top customers by sales this month?"
-- "Which purchase orders are delayed?"
-- "Show inventory transfers by warehouse this week"
+- "List the available Odoo query models."
+- "Show the latest 10 sales orders with customer names and total amounts."
+- "Summarize sales order revenue by customer."
 - "Which invoices are still unpaid?"
+- "Show recent inventory transfers by status."
 
 ## Best First Use Cases
 
@@ -165,7 +171,7 @@ AI Client -> MCP -> Odoo (foggy_mcp addon) -> Foggy semantic engine -> PostgreSQ
 
 ```
 1. User authenticates (API key → uid)
-2. For dataset.query_model calls:
+2. For `dataset__query_model` calls:
    a. Read model name from arguments
    b. Pre-check: ir.model.access read permission (model-level gate)
    c. Map QM name → Odoo model (e.g., OdooSaleOrderQueryModel → sale.order)
@@ -230,6 +236,15 @@ python -m pytest tests/test_permission_bridge.py -v
 ```
 
 45 tests covering: AST parsing, leaf conversion, operator negation, De Morgan's laws, `$or`/`$and` nesting, payload injection simulation, and real-world Odoo domain patterns.
+
+Before preparing an Odoo Apps Community listing package, also run:
+
+```bash
+bash scripts/check-no-pro-content.sh
+bash scripts/check-model-drift.sh
+bash scripts/sync-community-models.sh --dry-run
+bash scripts/check-odoo-apps-readiness.sh
+```
 
 ## Extending with Custom Models
 
@@ -312,7 +327,7 @@ See the [Installation Guide](INSTALL_GUIDE.md#upgrading-the-module) for details.
 | `foggy_mcp.server_url` | `http://foggy-mcp:8080` | Foggy MCP Server URL |
 | `foggy_mcp.endpoint_path` | `/mcp/analyst/rpc` | MCP endpoint path |
 | `foggy_mcp.request_timeout` | `30` | HTTP timeout (seconds) |
-| `foggy_mcp.namespace` | `odoo` | Model namespace |
+| `foggy_mcp.namespace` | `odoo17` | Model namespace |
 | `foggy_mcp.cache_ttl` | `300` | Tool cache TTL (seconds) |
 
 ## License

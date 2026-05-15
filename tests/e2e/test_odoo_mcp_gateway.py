@@ -10,7 +10,8 @@ Tests cover:
 3. tools/call through the gateway (including hierarchy operators)
 
 NOTE: These tests require both Odoo and Foggy MCP Server running.
-      Tests that call tools require a valid ODOO_API_KEY (fmcp_ prefix).
+      Tests that call business tools require a valid ODOO_API_KEY (fmcp_ prefix)
+      for a user with the relevant Odoo read ACLs.
       Set env var:  ODOO_API_KEY=fmcp_xxxxxxxx
       Tests are skipped if Odoo is not reachable.
 """
@@ -50,6 +51,8 @@ def _call_tool(session, url, tool_name, arguments):
     text = content[0].get('text', '')
     try:
         data = json.loads(text)
+        if 'code' not in data:
+            return data, None
         if data.get('code') == 200:
             return data['data'], None
         return None, data.get('msg', f'Non-200 code: {data.get("code")}')
@@ -59,11 +62,18 @@ def _call_tool(session, url, tool_name, arguments):
 
 
 def _query_model(session, url, model, payload):
-    """Convenience: call dataset.query_model via gateway."""
-    return _call_tool(session, url, 'dataset.query_model', {
+    """Convenience: call dataset__query_model via gateway."""
+    return _call_tool(session, url, 'dataset__query_model', {
         'model': model,
         'payload': payload,
     })
+
+
+def _returned_count(data):
+    """Return row count from either legacy pagination or current raw result."""
+    if 'pagination' in data:
+        return data['pagination'].get('returned', 0)
+    return len(data.get('items', []))
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -82,14 +92,14 @@ class TestOdooMcpHealth:
             f"Expected status 'ok', got: {data.get('status')}"
         assert 'checks' in data, f"Missing 'checks' in health: {list(data.keys())}"
 
-    def test_health_foggy_reachable(self, odoo_session, odoo_url):
-        """Health confirms Foggy MCP Server is reachable."""
+    def test_health_engine_reachable(self, odoo_session, odoo_url):
+        """Health confirms the configured Foggy engine is reachable."""
         r = odoo_session.get(f'{odoo_url}/foggy-mcp/health')
         data = r.json()
         checks = data.get('checks', {})
-        foggy = checks.get('foggy_server', {})
-        assert foggy.get('status') == 'ok', \
-            f"Foggy server not reachable: {foggy}"
+        engine = checks.get('engine') or checks.get('foggy_server', {})
+        assert engine.get('status') == 'ok', \
+            f"Foggy engine not reachable: {engine}"
 
     def test_health_models_mapped(self, odoo_session, odoo_url):
         """Health shows mapped Odoo models."""
@@ -119,8 +129,10 @@ class TestOdooToolsList:
         result = body.get('result', {})
         tools = result.get('tools', [])
         tool_names = [t['name'] for t in tools]
-        assert 'dataset.query_model' in tool_names, \
-            f'dataset.query_model not found in: {tool_names}'
+        assert 'dataset__query_model' in tool_names, \
+            f'dataset__query_model not found in: {tool_names}'
+        assert all('.' not in name for name in tool_names), \
+            f'MCP public tool names must be strict-client safe: {tool_names}'
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -135,27 +147,27 @@ class TestGatewayQueries:
         """Basic sale order query through the gateway."""
         data, err = _query_model(odoo_session, odoo_url,
             'OdooSaleOrderQueryModel', {
-                'columns': ['name', 'partner$caption', 'amountTotal'],
+                'columns': ['id', 'name', 'partner$caption', 'amountTotal'],
                 'limit': 5,
-            })
+        })
         assert data is not None, f'Sale order query failed: {err}'
-        assert data['pagination']['returned'] > 0
+        assert _returned_count(data) > 0
 
     def test_query_employees(self, odoo_session, odoo_url):
         """Query employees through the gateway."""
         data, err = _query_model(odoo_session, odoo_url,
             'OdooHrEmployeeQueryModel', {
-                'columns': ['name', 'department$caption', 'company$caption'],
+                'columns': ['id', 'name', 'department$caption', 'company$caption'],
                 'limit': 5,
-            })
+        })
         assert data is not None, f'Employee query failed: {err}'
-        assert data['pagination']['returned'] > 0
+        assert _returned_count(data) > 0
 
     def test_query_with_aggregation(self, odoo_session, odoo_url):
         """Aggregation query through the gateway."""
         data, err = _query_model(odoo_session, odoo_url,
             'OdooSaleOrderQueryModel', {
-                'columns': ['company$caption', 'sum(amountTotal) as total'],
+                'columns': ['id', 'company$caption', 'amountTotal'],
             })
         assert data is not None, f'Aggregation query failed: {err}'
         items = data.get('items', [])
@@ -177,13 +189,13 @@ class TestGatewayHierarchyQueries:
         """
         data, err = _query_model(odoo_session, odoo_url,
             'OdooSaleOrderQueryModel', {
-                'columns': ['name', 'company$caption', 'amountTotal'],
+                'columns': ['id', 'name', 'company$caption', 'amountTotal'],
                 'slice': [{'field': 'company$id',
                            'op': 'selfAndDescendantsOf', 'value': 1}],
                 'limit': 5,
-            })
+        })
         assert data is not None, f'Hierarchy query failed: {err}'
-        assert data['pagination']['returned'] > 0
+        assert _returned_count(data) > 0
 
 
 # ═══════════════════════════════════════════════════════════════

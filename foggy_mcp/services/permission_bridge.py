@@ -740,18 +740,12 @@ def _leaf_to_condition(leaf, negate=False, ctx=None):
             _logger.debug("Multi-level field traversal not supported: %s (using first part)", field)
             field = parts[0]
 
-    # Map Odoo field name to QM column name
-    # Strategy: prefer column_map (per-model dynamic mapping from FieldMappingRegistry),
-    # then fall back to DIRECT_FIELD_MAP for fields not in the dynamic map.
-    # This handles cases where Odoo ir.rule references related fields (e.g., company_id
-    # on account.payment is actually move_id.company_id) whose sourceColumn is not
-    # exposed by describe_model_internal for dimension properties.
+    # Map Odoo field name to QM column name. A non-empty column_map is exclusive:
+    # falling back to the global DIRECT_FIELD_MAP would leak mappings from one
+    # Odoo model into another (for example user_id -> salesperson$id).
     if _ctx.column_map:
         if field in _ctx.column_map:
             qm_field = _ctx.column_map[field]
-            is_mapped = True
-        elif field in DIRECT_FIELD_MAP:
-            qm_field = DIRECT_FIELD_MAP[field]
             is_mapped = True
         else:
             qm_field = field

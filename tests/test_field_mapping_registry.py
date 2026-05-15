@@ -311,11 +311,11 @@ class _ModelMappingGuard:
 
     @staticmethod
     def _get_model_mapping():
-        return sys.modules['foggy_mcp.services.tool_registry'].MODEL_MAPPING
+        return _tr_mod.MODEL_MAPPING
 
     @staticmethod
     def _get_qm_to_odoo():
-        return sys.modules['foggy_mcp.services.tool_registry'].QM_TO_ODOO_MODEL
+        return _tr_mod.QM_TO_ODOO_MODEL
 
     def setup_method(self):
         self._saved_mapping = dict(self._get_model_mapping())

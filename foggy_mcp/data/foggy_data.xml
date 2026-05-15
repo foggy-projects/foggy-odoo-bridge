@@ -20,7 +20,7 @@
 
         <record id="foggy_config_namespace" model="ir.config_parameter">
             <field name="key">foggy_mcp.namespace</field>
-            <field name="value">odoo</field>
+            <field name="value">odoo17</field>
         </record>
 
         <record id="foggy_config_cache_ttl" model="ir.config_parameter">

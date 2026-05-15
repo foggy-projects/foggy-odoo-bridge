@@ -27,8 +27,7 @@ test.describe('Setup Wizard', () => {
     await page.waitForTimeout(2000);
 
     // Wizard dialog should appear
-    const dialog = page.locator('.modal-dialog').or(page.locator('.o_dialog'));
-    await expect(dialog).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('dialog').first()).toBeVisible({ timeout: 10_000 });
     await screenshot(page, 'wizard-opened');
   });
 
@@ -45,11 +44,9 @@ test.describe('Setup Wizard', () => {
     await page.waitForTimeout(2000);
 
     // Should see engine mode selection on welcome step
-    const embeddedOption = page.locator('text=内嵌').or(page.locator('text=Embedded'));
-    const gatewayOption = page.locator('text=网关').or(page.locator('text=Gateway'));
-
-    const hasEngineChoice = await embeddedOption.isVisible() || await gatewayOption.isVisible();
-    expect(hasEngineChoice).toBeTruthy();
+    const dialog = page.getByRole('dialog').first();
+    await expect(dialog.getByText(/Embedded/i).first()).toBeVisible();
+    await expect(dialog.getByText(/Gateway/i).first()).toBeVisible();
     await screenshot(page, 'wizard-welcome-step');
   });
 });

@@ -112,11 +112,12 @@
               parent="foggy_mcp_menu_root"
               action="foggy_my_api_key_action"
               sequence="20"
-              groups="base.group_user"/>
+              groups="foggy_mcp.group_foggy_mcp_user"/>
 
     <menuitem id="foggy_mcp_menu_api_keys"
               name="API Keys (All Users)"
               parent="foggy_mcp_menu_root"
               action="foggy_api_key_action"
-              sequence="10"/>
+              sequence="10"
+              groups="foggy_mcp.group_foggy_admin"/>
 </odoo>

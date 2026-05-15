@@ -14,6 +14,7 @@ Odoo 17 compatibility:
 """
 import json
 import logging
+import re
 import uuid
 
 from odoo import http
@@ -25,11 +26,20 @@ from ..services.tool_registry import (
 )
 from ..services.permission_bridge import compute_permission_slices
 from ..services.field_mapping_registry import FieldMappingRegistry
+from ..services.odoo_namespace import resolve_configured_foggy_namespace
+from ..services.tool_names import (
+    ENGINE_TOOL_NAMES,
+    ENGINE_TOOL_QUERY_MODEL,
+    replace_tool_name_mentions,
+    to_engine_tool_name,
+    to_public_tool_name,
+)
 
 _logger = logging.getLogger(__name__)
 
 # Protocol version supported
 PROTOCOL_VERSION = '2024-11-05'
+PUBLIC_TOOL_NAME_RE = re.compile(r'^[a-zA-Z0-9_-]{1,64}$')
 
 # Singleton-like registries (lazily initialized per worker process)
 _tool_registry = None
@@ -91,6 +101,27 @@ def _reset_singletons():
     _engine_backend = None
     _field_mapping_registry = None
     _model_mapping_discovered_at = 0
+
+
+def _public_tool_definitions(tools):
+    """Translate engine tool definitions into the public MCP-safe namespace."""
+    result = []
+    seen = set()
+    for tool in tools or []:
+        if not isinstance(tool, dict):
+            continue
+        public_tool = dict(tool)
+        public_tool['name'] = to_public_tool_name(public_tool.get('name', ''))
+        public_tool['description'] = replace_tool_name_mentions(public_tool.get('description', ''))
+        name = public_tool.get('name')
+        if not name or name in seen:
+            continue
+        if not PUBLIC_TOOL_NAME_RE.fullmatch(name):
+            _logger.warning("Dropping non-MCP-safe public tool name from tools/list: %s", name)
+            continue
+        seen.add(name)
+        result.append(public_tool)
+    return result
 
 
 def _json_response(data, status=200):
@@ -192,18 +223,25 @@ class McpController(http.Controller):
         """
         auth_header = request.httprequest.headers.get('Authorization', '')
 
+        user = None
         # Try API Key auth
         if auth_header.startswith('Bearer fmcp_'):
             user = request.env['foggy.api.key'].sudo().authenticate_by_key(auth_header)
-            if user:
-                return user
+        # Try session auth
+        elif request.session.uid:
+            user = request.env['res.users'].sudo().browse(request.session.uid)
+
+        if not user:
             return None
 
-        # Try session auth
-        if request.session.uid:
-            return request.env['res.users'].sudo().browse(request.session.uid)
+        if not user.has_group('foggy_mcp.group_foggy_mcp_user'):
+            _logger.warning(
+                "MCP access denied: user=%s lacks group_foggy_mcp_user",
+                user.login,
+            )
+            return None
 
-        return None
+        return user
 
     def _handle_initialize(self, request_id):
         """Handle MCP initialize request."""
@@ -223,6 +261,7 @@ class McpController(http.Controller):
         try:
             registry = _get_tool_registry(env)
             tools = registry.get_tools_for_user(env, user.id)
+            tools = _public_tool_definitions(tools)
         except Exception as e:
             _logger.error("Failed to load tools: %s", e, exc_info=True)
             return {
@@ -258,8 +297,17 @@ class McpController(http.Controller):
         _logger.info("tools/call: user=%s, tool=%s, trace_id=%s",
                      user.login, tool_name, trace_id)
 
-        # For dataset.query_model: check access + inject permission slices
-        if tool_name == 'dataset.query_model':
+        if tool_name in ENGINE_TOOL_NAMES:
+            _logger.warning(
+                "Legacy dot MCP tool name received from user=%s: %s. "
+                "Public tools/list exposes MCP-safe names.",
+                user.login, tool_name,
+            )
+
+        backend_tool_name = to_engine_tool_name(tool_name)
+
+        # For dataset__query_model: check access + inject permission slices
+        if backend_tool_name == ENGINE_TOOL_QUERY_MODEL:
             model_name = arguments.get('model')
             if model_name:
                 # Model-level access check (ir.model.access)
@@ -330,7 +378,7 @@ class McpController(http.Controller):
         try:
             backend = _get_engine_backend(env)
             response = backend.call_tools_call(
-                tool_name=tool_name,
+                tool_name=backend_tool_name,
                 arguments=arguments,
                 trace_id=trace_id,
             )
@@ -435,11 +483,23 @@ class McpController(http.Controller):
 
         # Check 3: Configuration
         ICP = env['ir.config_parameter'].sudo()
+        try:
+            namespace = resolve_configured_foggy_namespace(env)
+            config_status = 'ok'
+            config_error = None
+        except Exception as e:
+            namespace = ICP.get_param('foggy_mcp.namespace', '(invalid)')
+            config_status = 'error'
+            config_error = str(e)
+            result['status'] = 'degraded'
         result['checks']['config'] = {
+            'status': config_status,
             'server_url': ICP.get_param('foggy_mcp.server_url', '(not set)'),
-            'namespace': ICP.get_param('foggy_mcp.namespace', 'odoo'),
+            'namespace': namespace,
             'timeout': ICP.get_param('foggy_mcp.request_timeout', '30'),
         }
+        if config_error:
+            result['checks']['config']['error'] = config_error
 
         # Check 4: Model mapping (with installation status)
         installed = []

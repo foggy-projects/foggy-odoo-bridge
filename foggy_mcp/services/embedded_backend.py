@@ -222,24 +222,27 @@ class EmbeddedBackend(EngineBackend):
 
     @staticmethod
     def _build_tool_definitions(model_names):
-        """根据已注册模型构建 MCP 工具定义。"""
+        """Build MCP tool definitions from registered query models."""
         tools = []
 
         # dataset.query_model
         tools.append({
             'name': 'dataset.query_model',
-            'description': '使用语义层查询数据模型。支持维度筛选、度量聚合、排序和分页。',
+            'description': (
+                'Query Odoo data through the Foggy semantic layer. '
+                'Supports dimension filters, metric aggregation, sorting, and paging.'
+            ),
             'inputSchema': {
                 'type': 'object',
                 'properties': {
                     'model': {
                         'type': 'string',
-                        'description': '查询模型名称',
+                        'description': 'Query model name.',
                         'enum': sorted(model_names),
                     },
                     'payload': {
                         'type': 'object',
-                        'description': '查询参数（columns, slice, order, paging 等）',
+                        'description': 'Query payload, such as columns, slice, order, and paging.',
                     },
                 },
                 'required': ['model'],
@@ -249,29 +252,42 @@ class EmbeddedBackend(EngineBackend):
         # dataset.get_metadata
         tools.append({
             'name': 'dataset.get_metadata',
-            'description': '获取所有可用模型的元数据概览。',
+            'description': 'Get a metadata overview for all available query models.',
             'inputSchema': {
                 'type': 'object',
                 'properties': {
                     'format': {
                         'type': 'string',
-                        'description': '输出格式',
+                        'description': 'Output format.',
                         'default': 'json',
                     },
                 },
             }
         })
 
+        # dataset.list_models
+        tools.append({
+            'name': 'dataset.list_models',
+            'description': 'List the query models loaded by the semantic engine.',
+            'inputSchema': {
+                'type': 'object',
+                'properties': {},
+            }
+        })
+
         # dataset.describe_model_internal
         tools.append({
             'name': 'dataset.describe_model_internal',
-            'description': '获取指定模型的详细字段定义（维度、度量、层级等）。',
+            'description': (
+                'Get detailed field definitions for one query model, '
+                'including dimensions, metrics, and hierarchies.'
+            ),
             'inputSchema': {
                 'type': 'object',
                 'properties': {
                     'model': {
                         'type': 'string',
-                        'description': '模型名称',
+                        'description': 'Query model name.',
                         'enum': sorted(model_names),
                     },
                     'format': {

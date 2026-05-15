@@ -65,11 +65,11 @@ def _call_odoo_mcp(session, tool_name, arguments):
 # ═══════════════════════════════════════════════════════════════
 
 class TestGetMetadata:
-    """Verify dataset.get_metadata returns complete model info."""
+    """Verify dataset__get_metadata returns complete model info."""
 
     def test_metadata_not_empty(self, authed_session):
         """Regression: get_metadata must NOT return empty string or {}."""
-        text = _call_odoo_mcp(authed_session, 'dataset.get_metadata', {})
+        text = _call_odoo_mcp(authed_session, 'dataset__get_metadata', {})
         assert len(text) > 100, (
             f"get_metadata returned too little content ({len(text)} chars)! "
             "This is a regression — SemanticMetadataResponse.models "
@@ -78,7 +78,7 @@ class TestGetMetadata:
 
     def test_metadata_contains_all_models(self, authed_session):
         """All 9 Odoo models should be mentioned in metadata."""
-        text = _call_odoo_mcp(authed_session, 'dataset.get_metadata', {})
+        text = _call_odoo_mcp(authed_session, 'dataset__get_metadata', {})
         expected_models = [
             'OdooSaleOrderQueryModel',
             'OdooPurchaseOrderQueryModel',
@@ -95,7 +95,7 @@ class TestGetMetadata:
     def test_metadata_json_format(self, authed_session):
         """JSON format should return V3 with version, fields, models."""
         text = _call_odoo_mcp(
-            authed_session, 'dataset.get_metadata', {'format': 'json'})
+            authed_session, 'dataset__get_metadata', {'format': 'json'})
         data = json.loads(text)
         assert data.get('version') == 'v3', \
             f"Expected version='v3', got {data.get('version')}"
@@ -110,12 +110,12 @@ class TestGetMetadata:
 # ═══════════════════════════════════════════════════════════════
 
 class TestDescribeModel:
-    """Verify dataset.describe_model_internal returns complete field info."""
+    """Verify dataset__describe_model_internal returns complete field info."""
 
     def test_describe_not_empty(self, authed_session):
         """Regression: describe_model must NOT return empty string or {}."""
         text = _call_odoo_mcp(
-            authed_session, 'dataset.describe_model_internal',
+            authed_session, 'dataset__describe_model_internal',
             {'model': 'OdooHrEmployeeQueryModel'},
         )
         assert len(text) > 100, (
@@ -126,7 +126,7 @@ class TestDescribeModel:
     def test_hr_employee_has_department(self, authed_session):
         """HR Employee must include department JOIN fields."""
         text = _call_odoo_mcp(
-            authed_session, 'dataset.describe_model_internal',
+            authed_session, 'dataset__describe_model_internal',
             {'model': 'OdooHrEmployeeQueryModel'},
         )
         assert 'department$id' in text, \
@@ -137,7 +137,7 @@ class TestDescribeModel:
     def test_hr_employee_has_job_fields(self, authed_session):
         """HR Employee must include job-related fields."""
         text = _call_odoo_mcp(
-            authed_session, 'dataset.describe_model_internal',
+            authed_session, 'dataset__describe_model_internal',
             {'model': 'OdooHrEmployeeQueryModel'},
         )
         assert 'job$caption' in text or 'jobTitle' in text, \
@@ -146,7 +146,7 @@ class TestDescribeModel:
     def test_hr_employee_has_contact_or_work_fields(self, authed_session):
         """HR Employee must include work-related fields (email, phone, or location)."""
         text = _call_odoo_mcp(
-            authed_session, 'dataset.describe_model_internal',
+            authed_session, 'dataset__describe_model_internal',
             {'model': 'OdooHrEmployeeQueryModel'},
         )
         # TM/QM may define these as dimensions, properties, or attributes
@@ -161,7 +161,7 @@ class TestDescribeModel:
     def test_hr_employee_fields_not_empty(self, authed_session):
         """HR Employee describe must return meaningful field definitions."""
         text = _call_odoo_mcp(
-            authed_session, 'dataset.describe_model_internal',
+            authed_session, 'dataset__describe_model_internal',
             {'model': 'OdooHrEmployeeQueryModel'},
         )
         # Should have dimension fields (JOIN dimensions like department, job)
@@ -174,7 +174,7 @@ class TestDescribeModel:
     def test_sale_order_has_partner_fields(self, authed_session):
         """Sale Order model must include partner JOIN fields."""
         text = _call_odoo_mcp(
-            authed_session, 'dataset.describe_model_internal',
+            authed_session, 'dataset__describe_model_internal',
             {'model': 'OdooSaleOrderQueryModel'},
         )
         assert 'partner$id' in text, \
@@ -185,7 +185,7 @@ class TestDescribeModel:
     def test_describe_includes_measures(self, authed_session):
         """Describe model should include measure section."""
         text = _call_odoo_mcp(
-            authed_session, 'dataset.describe_model_internal',
+            authed_session, 'dataset__describe_model_internal',
             {'model': 'OdooSaleOrderQueryModel'},
         )
         assert '度量' in text or 'measure' in text.lower(), \

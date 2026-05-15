@@ -17,16 +17,15 @@ Current release status:
 
 ## Dependency Notes
 
-| Scenario | Extra Python packages needed in the Odoo environment |
-|---|---|
-| MCP service only (no built-in AI Chat) | None |
-| Built-in AI Chat with OpenAI-compatible providers | `openai` |
-| Built-in AI Chat with Anthropic / Claude | `anthropic` |
+The Community Edition does not ship built-in AI Chat. You do not need `openai` or `anthropic` in the Odoo environment. External MCP clients manage their own model/provider dependencies outside Odoo.
 
-Notes:
+Embedded mode requires these Python runtime packages in the Odoo environment:
 
-- If you only use this addon as an MCP service for Claude Desktop, Cursor, or other external AI clients, you do **not** need `openai` or `anthropic`
-- `openai` / `anthropic` are only required when using the built-in **AI Chat** feature inside Odoo
+```bash
+pip install -r requirements.txt
+```
+
+This installs `asyncpg`, `pydantic`, and `PyYAML`. Odoo checks the import names `asyncpg`, `pydantic`, and `yaml` from the manifest. The included Dockerfile installs the same runtime dependencies only; it does not install AI provider SDKs.
 
 ---
 
@@ -58,10 +57,6 @@ cp -r foggy_mcp /path/to/odoo/addons/
 2. Click **Update Apps List**
 3. Search for `foggy_mcp` -> click **Install**
 
-> If you only use the standalone MCP service capability, you still do not need `openai` / `anthropic` at this point.
-
----
-
 ## Setup Wizard
 
 After installation, go to **Settings -> Foggy MCP -> Setup Wizard** and follow the guided flow.
@@ -75,58 +70,6 @@ Click **Initialize Closure Tables** to enable hierarchy-aware queries such as co
 Click **Finish** and continue to the API key page.
 
 No external service is required — the query engine runs inside the Odoo process.
-
----
-
-## Optional: Enable Built-in AI Chat
-
-Only install LLM SDK packages if you want to use **Foggy AI Chat** directly inside Odoo:
-
-**Standard (non-Docker) environment:**
-
-```bash
-# OpenAI / DeepSeek / Ollama / other OpenAI-compatible endpoints
-pip install openai
-
-# Anthropic / Claude
-pip install anthropic
-```
-
-**Docker environment:**
-
-The included `Dockerfile` already installs `openai` and `anthropic` when you build with `docker compose`. If you used `docker compose up -d` during installation, the packages are already available.
-
-To rebuild after changes (e.g., updating SDK versions):
-
-```bash
-docker compose build odoo
-docker compose up -d
-```
-
-**Alternative: modify `docker-compose.yml` directly** (no custom image build needed):
-
-```yaml
-odoo:
-  image: odoo:17.0                    # use the official image as-is
-  # ...
-  command: >
-    bash -c "pip install openai anthropic &&
-    exec odoo --database=odoo_demo
-    --addons-path=/mnt/extra-addons
-    --db_host=postgres --db_port=5432
-    --db_user=odoo --db_password=odoo"
-```
-
-This installs the packages on every container start — no need to rebuild an image.
-
-**Quick one-time install** (does **not** persist after container restart):
-
-```bash
-docker exec foggy-odoo pip install openai anthropic
-docker restart foggy-odoo
-```
-
-If you do not use AI Chat, you can skip this section entirely.
 
 ---
 
@@ -158,6 +101,8 @@ curl -s http://localhost:8069/foggy-mcp/rpc \
 
 ### Claude Desktop / Cursor
 
+For clients that support Streamable HTTP / remote MCP servers:
+
 ```json
 {
   "mcpServers": {
@@ -173,9 +118,11 @@ curl -s http://localhost:8069/foggy-mcp/rpc \
 
 Example questions:
 
-- "Show the latest 10 sales orders"
-- "Summarize sales revenue by customer"
-- "How many purchase orders were created this month?"
+- "List the available Odoo query models."
+- "Show the latest 10 sales orders with customer names and total amounts."
+- "Summarize sales order revenue by customer."
+- "Which invoices are still unpaid?"
+- "Show recent inventory transfers by status."
 
 ---
 
@@ -188,7 +135,7 @@ AI Client
 Odoo (foggy_mcp addon)
     │ Permission filtering (ir.rule -> DSL slice)
     ▼
-Foggy MCP Server
+Embedded Foggy engine
     │ SQL
     ▼
 PostgreSQL (Odoo database)
@@ -225,7 +172,13 @@ Replace `<DATABASE>` with your Odoo database name (e.g. `odoo_demo`) and `<POSTG
 
 ## Troubleshooting
 
-### Foggy MCP Server connection failed
+### Embedded engine dependency check failed
+
+1. Confirm `asyncpg`, `pydantic`, and `yaml` are importable in the Odoo Python environment.
+2. If you installed from the release zip manually, run `pip install -r requirements.txt` before upgrading the module.
+3. Restart Odoo after dependency installation.
+
+### Gateway mode connection failed
 
 1. Verify the service is running: `curl http://localhost:7108/actuator/health`
 2. Check whether the database connection is correct

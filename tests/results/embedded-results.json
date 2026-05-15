@@ -1,8 +1,8 @@
 {
   "engine_mode": "embedded",
-  "odoo_url": "http://localhost:8069",
-  "database": "odoo_demo",
-  "timestamp": "2026-03-25T23:14:04",
+  "odoo_url": "http://localhost:8077",
+  "database": "community_smoke",
+  "timestamp": "2026-05-15T16:22:23",
   "scenarios": [
     {
       "id": "T01",
@@ -10,12 +10,28 @@
       "category": "基础查询",
       "model": "OdooResPartnerQueryModel",
       "success": true,
-      "row_count": 0,
-      "total": 0,
-      "duration_ms": 45.58,
-      "sql": "",
+      "row_count": 5,
+      "total": 5,
+      "duration_ms": 4.63,
+      "sql": "SELECT t.name AS \"Name\", t.email AS \"Email\", t.city AS \"City\"\nFROM res_partner AS t\nLEFT JOIN res_company AS rc ON t.company_id = rc.id\nLEFT JOIN res_company_closure AS h_company_2 ON t.company_id = h_company_2.parent_id\nWHERE (t.partner_share = ? OR (h_company_2.distance >= 0 AND h_company_2.company_id = ?) OR rc.id IS NULL)\nLIMIT 5",
       "error": "",
-      "sample_data": []
+      "sample_data": [
+        {
+          "Name": "Smoke Customer",
+          "Email": "smoke.customer@example.test",
+          "City": null
+        },
+        {
+          "Name": "Smoke Employee",
+          "Email": null,
+          "City": null
+        },
+        {
+          "Name": "Administrator",
+          "Email": "admin@example.com",
+          "City": null
+        }
+      ]
     },
     {
       "id": "T02",
@@ -23,17 +39,14 @@
       "category": "基础查询",
       "model": "OdooResCompanyQueryModel",
       "success": true,
-      "row_count": 2,
-      "total": 2,
-      "duration_ms": 2.4,
+      "row_count": 1,
+      "total": 1,
+      "duration_ms": 1.01,
       "sql": "SELECT t.name AS \"Company Name\"\nFROM res_company AS t\nLIMIT 5",
       "error": "",
       "sample_data": [
         {
-          "Company Name": "My Company (Chicago)"
-        },
-        {
-          "Company Name": "My Company (San Francisco)"
+          "Company Name": "My Company"
         }
       ]
     },
@@ -43,20 +56,17 @@
       "category": "基础查询",
       "model": "OdooHrEmployeeQueryModel",
       "success": true,
-      "row_count": 5,
-      "total": 5,
-      "duration_ms": 1.16,
-      "sql": "SELECT t.name AS \"Employee Name\"\nFROM hr_employee AS t\nLEFT JOIN res_company AS rc ON t.company_id = rc.id\nWHERE (rc.id IN (?, ?) OR rc.id IS NULL)\nLIMIT 5",
+      "row_count": 2,
+      "total": 2,
+      "duration_ms": 2.7,
+      "sql": "SELECT t.name AS \"Employee Name\"\nFROM hr_employee AS t\nLEFT JOIN res_company AS rc ON t.company_id = rc.id\nWHERE (rc.id IN (?) OR rc.id IS NULL)\nLIMIT 5",
       "error": "",
       "sample_data": [
         {
-          "Employee Name": "Mitchell Admin"
+          "Employee Name": "Administrator"
         },
         {
-          "Employee Name": "Anita Oliver"
-        },
-        {
-          "Employee Name": "Jeffrey Kelly"
+          "Employee Name": "Smoke Employee"
         }
       ]
     },
@@ -66,20 +76,15 @@
       "category": "基础查询",
       "model": "OdooCrmLeadQueryModel",
       "success": true,
-      "row_count": 5,
-      "total": 5,
-      "duration_ms": 1.91,
-      "sql": "SELECT t.name AS \"Lead Name\"\nFROM crm_lead AS t\nLEFT JOIN res_company AS rc ON t.company_id = rc.id\nWHERE (rc.id IN (?, ?) OR rc.id IS NULL)\nLIMIT 5",
+      "row_count": 1,
+      "total": 1,
+      "duration_ms": 4.62,
+      "sql": "SELECT t.id AS \"ID\", t.name AS \"Lead Name\"\nFROM crm_lead AS t\nLEFT JOIN res_company AS rc ON t.company_id = rc.id\nWHERE (rc.id IN (?) OR rc.id IS NULL)\nLIMIT 5",
       "error": "",
       "sample_data": [
         {
-          "Lead Name": "Club Office Furnitures"
-        },
-        {
-          "Lead Name": "Design Software"
-        },
-        {
-          "Lead Name": "Quotation for 50 Chairs"
+          "ID": 1,
+          "Lead Name": "Smoke Lead"
         }
       ]
     },
@@ -89,23 +94,15 @@
       "category": "基础查询",
       "model": "OdooSaleOrderQueryModel",
       "success": true,
-      "row_count": 5,
-      "total": 5,
-      "duration_ms": 1.4,
-      "sql": "SELECT t.name AS \"Order Reference\", SUM(t.amount_total) AS \"Total\"\nFROM sale_order AS t\nLEFT JOIN res_company AS rc ON t.company_id = rc.id\nWHERE rc.id IN (?, ?)\nGROUP BY t.name\nLIMIT 5",
+      "row_count": 1,
+      "total": 1,
+      "duration_ms": 3.58,
+      "sql": "SELECT t.name AS \"Order Reference\", SUM(t.amount_total) AS \"Total\"\nFROM sale_order AS t\nLEFT JOIN res_company AS rc ON t.company_id = rc.id\nWHERE rc.id IN (?)\nGROUP BY t.name\nLIMIT 5",
       "error": "",
       "sample_data": [
         {
-          "Order Reference": "S00009",
-          "Total": "752.11"
-        },
-        {
-          "Order Reference": "S00008",
-          "Total": "531.30"
-        },
-        {
-          "Order Reference": "S00020",
-          "Total": "3389.63"
+          "Order Reference": "SMOKE-SO-001",
+          "Total": "115.00"
         }
       ]
     },
@@ -115,20 +112,14 @@
       "category": "基础查询",
       "model": "OdooPurchaseOrderQueryModel",
       "success": true,
-      "row_count": 5,
-      "total": 5,
-      "duration_ms": 1.07,
-      "sql": "SELECT t.name AS \"Order Reference\"\nFROM purchase_order AS t\nLEFT JOIN res_company AS rc ON t.company_id = rc.id\nWHERE rc.id IN (?, ?)\nLIMIT 5",
+      "row_count": 1,
+      "total": 1,
+      "duration_ms": 2.42,
+      "sql": "SELECT t.name AS \"Order Reference\"\nFROM purchase_order AS t\nLEFT JOIN res_company AS rc ON t.company_id = rc.id\nWHERE rc.id IN (?)\nLIMIT 5",
       "error": "",
       "sample_data": [
         {
-          "Order Reference": "P00004"
-        },
-        {
-          "Order Reference": "P00001"
-        },
-        {
-          "Order Reference": "P00003"
+          "Order Reference": "SMOKE-PO-001"
         }
       ]
     },
@@ -138,20 +129,14 @@
       "category": "基础查询",
       "model": "OdooAccountMoveQueryModel",
       "success": true,
-      "row_count": 5,
-      "total": 5,
-      "duration_ms": 1.27,
-      "sql": "SELECT t.name AS \"Number\"\nFROM account_move AS t\nLEFT JOIN res_company AS rc ON t.company_id = rc.id\nWHERE rc.id IN (?, ?)\nLIMIT 5",
+      "row_count": 1,
+      "total": 1,
+      "duration_ms": 3.61,
+      "sql": "SELECT t.name AS \"Number\"\nFROM account_move AS t\nLEFT JOIN res_company AS rc ON t.company_id = rc.id\nWHERE rc.id IN (?)\nLIMIT 5",
       "error": "",
       "sample_data": [
         {
-          "Number": "BNK1/2026/00001"
-        },
-        {
-          "Number": "BNK1/2026/00003"
-        },
-        {
-          "Number": "BNK1/2026/00002"
+          "Number": "SMOKE-MOVE-001"
         }
       ]
     },
@@ -161,22 +146,12 @@
       "category": "基础查询",
       "model": "OdooStockPickingQueryModel",
       "success": true,
-      "row_count": 5,
-      "total": 5,
-      "duration_ms": 1.74,
-      "sql": "SELECT t.name AS \"Reference\"\nFROM stock_picking AS t\nLEFT JOIN res_company AS rc ON t.company_id = rc.id\nWHERE rc.id IN (?, ?)\nLIMIT 5",
+      "row_count": 0,
+      "total": 0,
+      "duration_ms": 2.78,
+      "sql": "SELECT t.name AS \"Reference\"\nFROM stock_picking AS t\nLEFT JOIN res_company AS rc ON t.company_id = rc.id\nWHERE rc.id IN (?)\nLIMIT 5",
       "error": "",
-      "sample_data": [
-        {
-          "Reference": "WH/OUT/00001"
-        },
-        {
-          "Reference": "WH/IN/00002"
-        },
-        {
-          "Reference": "WH/IN/00003"
-        }
-      ]
+      "sample_data": []
     },
     {
       "id": "T10",
@@ -186,12 +161,12 @@
       "success": true,
       "row_count": 1,
       "total": 1,
-      "duration_ms": 1.12,
+      "duration_ms": 1.24,
       "sql": "SELECT COUNT(DISTINCT t.id) AS \"Company Count\"\nFROM res_company AS t\nLIMIT 1000",
       "error": "",
       "sample_data": [
         {
-          "Company Count": 2
+          "Company Count": 1
         }
       ]
     },
@@ -203,12 +178,12 @@
       "success": true,
       "row_count": 1,
       "total": 1,
-      "duration_ms": 1.26,
-      "sql": "SELECT COUNT(DISTINCT t.id) AS \"Employee Count\"\nFROM hr_employee AS t\nLEFT JOIN res_company AS rc ON t.company_id = rc.id\nWHERE (rc.id IN (?, ?) OR rc.id IS NULL)\nLIMIT 1000",
+      "duration_ms": 1.27,
+      "sql": "SELECT COUNT(DISTINCT t.id) AS \"Employee Count\"\nFROM hr_employee AS t\nLEFT JOIN res_company AS rc ON t.company_id = rc.id\nWHERE (rc.id IN (?) OR rc.id IS NULL)\nLIMIT 1000",
       "error": "",
       "sample_data": [
         {
-          "Employee Count": 20
+          "Employee Count": 2
         }
       ]
     },
@@ -218,23 +193,19 @@
       "category": "维度JOIN",
       "model": "OdooHrEmployeeQueryModel",
       "success": true,
-      "row_count": 7,
-      "total": 7,
-      "duration_ms": 1.51,
-      "sql": "SELECT hd.complete_name AS \"Department\", COUNT(DISTINCT t.id) AS \"Employee Count\"\nFROM hr_employee AS t\nLEFT JOIN hr_department AS hd ON t.department_id = hd.id\nLEFT JOIN res_company AS rc ON t.company_id = rc.id\nWHERE (rc.id IN (?, ?) OR rc.id IS NULL)\nGROUP BY hd.complete_name\nLIMIT 1000",
+      "row_count": 2,
+      "total": 2,
+      "duration_ms": 2.2,
+      "sql": "SELECT hd.complete_name AS \"Department\", COUNT(DISTINCT t.id) AS \"Employee Count\"\nFROM hr_employee AS t\nLEFT JOIN hr_department AS hd ON t.department_id = hd.id\nLEFT JOIN res_company AS rc ON t.company_id = rc.id\nWHERE (rc.id IN (?) OR rc.id IS NULL)\nGROUP BY hd.complete_name\nLIMIT 1000",
       "error": "",
       "sample_data": [
         {
-          "Department": "Management",
-          "Employee Count": 2
-        },
-        {
-          "Department": "Management / Administration",
+          "Department": "Administration",
           "Employee Count": 1
         },
         {
-          "Department": "Management / Professional Services",
-          "Employee Count": 5
+          "Department": null,
+          "Employee Count": 1
         }
       ]
     },
@@ -246,8 +217,8 @@
       "success": true,
       "row_count": 0,
       "total": 0,
-      "duration_ms": 48.66,
-      "sql": "",
+      "duration_ms": 2.02,
+      "sql": "SELECT rc.id AS \"Country\", COUNT(DISTINCT t.id) AS \"Partner Count\"\nFROM res_partner AS t\nLEFT JOIN res_country AS rc ON t.country_id = rc.id\nLEFT JOIN res_company AS rc ON t.company_id = rc.id\nLEFT JOIN res_company_closure AS h_company_3 ON t.company_id = h_company_3.parent_id\nWHERE (t.partner_share = ? OR (h_company_3.distance >= 0 AND h_company_3.company_id = ?) OR rc.id IS NULL)\nGROUP BY rc.id\nLIMIT 1000",
       "error": "",
       "sample_data": []
     },
@@ -257,18 +228,14 @@
       "category": "维度JOIN",
       "model": "OdooResCompanyQueryModel",
       "success": true,
-      "row_count": 2,
-      "total": 2,
-      "duration_ms": 1.48,
+      "row_count": 1,
+      "total": 1,
+      "duration_ms": 1.22,
       "sql": "SELECT t.name AS \"Company Name\", rc.name AS \"Parent Company\"\nFROM res_company AS t\nLEFT JOIN res_company AS rc ON t.parent_id = rc.id\nLIMIT 5",
       "error": "",
       "sample_data": [
         {
-          "Company Name": "My Company (Chicago)",
-          "Parent Company": null
-        },
-        {
-          "Company Name": "My Company (San Francisco)",
+          "Company Name": "My Company",
           "Parent Company": null
         }
       ]
@@ -279,23 +246,16 @@
       "category": "排序",
       "model": "OdooCrmLeadQueryModel",
       "success": true,
-      "row_count": 5,
-      "total": 5,
-      "duration_ms": 1.74,
-      "sql": "SELECT t.name AS \"Lead Name\", SUM(t.expected_revenue) AS \"Expected Revenue\"\nFROM crm_lead AS t\nLEFT JOIN res_company AS rc ON t.company_id = rc.id\nWHERE (rc.id IN (?, ?) OR rc.id IS NULL)\nGROUP BY t.name\nORDER BY \"Expected Revenue\" DESC\nLIMIT 5",
+      "row_count": 1,
+      "total": 1,
+      "duration_ms": 1.86,
+      "sql": "SELECT t.id AS \"ID\", t.name AS \"Lead Name\", SUM(t.expected_revenue) AS \"Expected Revenue\"\nFROM crm_lead AS t\nLEFT JOIN res_company AS rc ON t.company_id = rc.id\nWHERE (rc.id IN (?) OR rc.id IS NULL)\nGROUP BY t.id, t.name\nORDER BY \"Expected Revenue\" DESC\nLIMIT 5",
       "error": "",
       "sample_data": [
         {
-          "Lead Name": "Pricing for 25 desks",
-          "Expected Revenue": null
-        },
-        {
-          "Lead Name": "Acadia College Furnitures",
-          "Expected Revenue": null
-        },
-        {
-          "Lead Name": "Design Software",
-          "Expected Revenue": null
+          "ID": 1,
+          "Lead Name": "Smoke Lead",
+          "Expected Revenue": "2500.0"
         }
       ]
     },
@@ -307,12 +267,102 @@
       "success": true,
       "row_count": 1,
       "total": 1,
-      "duration_ms": 1.26,
-      "sql": "SELECT COUNT(DISTINCT t.id) AS \"Employee Count\"\nFROM hr_employee AS t\nLEFT JOIN res_company AS rc ON t.company_id = rc.id\nWHERE (rc.id IN (?, ?) OR rc.id IS NULL)\nLIMIT 1000",
+      "duration_ms": 1.27,
+      "sql": "SELECT COUNT(DISTINCT t.id) AS \"Employee Count\"\nFROM hr_employee AS t\nLEFT JOIN res_company AS rc ON t.company_id = rc.id\nWHERE (rc.id IN (?) OR rc.id IS NULL)\nLIMIT 1000",
       "error": "",
       "sample_data": [
         {
-          "Employee Count": 20
+          "Employee Count": 2
+        }
+      ]
+    },
+    {
+      "id": "T50",
+      "name": "基础查询：付款记录",
+      "category": "基础查询",
+      "model": "OdooAccountPaymentQueryModel",
+      "success": true,
+      "row_count": 0,
+      "total": 0,
+      "duration_ms": 2.46,
+      "sql": "SELECT t.payment_type AS \"Payment Type\", t.partner_type AS \"Partner Type\", rp.name AS \"Partner\", SUM(t.amount) AS \"Amount\"\nFROM account_payment AS t\nLEFT JOIN res_partner AS rp ON t.partner_id = rp.id\nLEFT JOIN res_company AS rc ON t.company_id = rc.id\nWHERE rc.id IN (?)\nGROUP BY t.payment_type, t.partner_type, rp.name\nLIMIT 10",
+      "error": "",
+      "sample_data": []
+    },
+    {
+      "id": "T51",
+      "name": "聚合：付款统计",
+      "category": "聚合分析",
+      "model": "OdooAccountPaymentQueryModel",
+      "success": true,
+      "row_count": 0,
+      "total": 0,
+      "duration_ms": 2.2,
+      "sql": "SELECT t.payment_type AS \"Payment Type\", SUM(t.amount) AS \"totalAmount\", COUNT(DISTINCT t.id) AS \"Payment Count\"\nFROM account_payment AS t\nLEFT JOIN res_company AS rc ON t.company_id = rc.id\nWHERE rc.id IN (?)\nGROUP BY t.payment_type\nLIMIT 1000",
+      "error": "",
+      "sample_data": []
+    },
+    {
+      "id": "T52",
+      "name": "基础查询：会计分录行",
+      "category": "基础查询",
+      "model": "OdooAccountMoveLineQueryModel",
+      "success": true,
+      "row_count": 0,
+      "total": 0,
+      "duration_ms": 5.14,
+      "sql": "SELECT t.move_name AS \"Journal Entry Number\", aa.id AS \"Account\", aa.code AS \"Account Code\", SUM(t.debit) AS \"Debit\", SUM(t.credit) AS \"Credit\", SUM(t.balance) AS \"Balance\"\nFROM account_move_line AS t\nLEFT JOIN account_account AS aa ON t.account_id = aa.id\nLEFT JOIN res_company AS rc ON t.company_id = rc.id\nWHERE rc.id IN (?)\nGROUP BY t.move_name, aa.id, aa.code\nLIMIT 10",
+      "error": "",
+      "sample_data": []
+    },
+    {
+      "id": "T53",
+      "name": "维度JOIN：按科目汇总借贷方",
+      "category": "维度JOIN",
+      "model": "OdooAccountMoveLineQueryModel",
+      "success": true,
+      "row_count": 0,
+      "total": 0,
+      "duration_ms": 1.75,
+      "sql": "SELECT aa.id AS \"Account\", aa.code AS \"Account Code\", SUM(t.debit) AS \"totalDebit\", SUM(t.credit) AS \"totalCredit\", COUNT(DISTINCT t.id) AS \"Line Count\"\nFROM account_move_line AS t\nLEFT JOIN account_account AS aa ON t.account_id = aa.id\nLEFT JOIN res_company AS rc ON t.company_id = rc.id\nWHERE rc.id IN (?)\nGROUP BY aa.id, aa.code\nORDER BY totalDebit DESC\nLIMIT 10",
+      "error": "",
+      "sample_data": []
+    },
+    {
+      "id": "T54",
+      "name": "基础查询：产品目录",
+      "category": "基础查询",
+      "model": "OdooProductTemplateQueryModel",
+      "success": true,
+      "row_count": 1,
+      "total": 1,
+      "duration_ms": 4.25,
+      "sql": "SELECT t.default_code AS \"Internal Reference\", t.detailed_type AS \"Product Type\", pc.complete_name AS \"Product Category\", SUM(t.list_price) AS \"Sales Price\"\nFROM product_template AS t\nLEFT JOIN product_category AS pc ON t.categ_id = pc.id\nLEFT JOIN res_company AS rc ON t.company_id = rc.id\nLEFT JOIN res_company_closure AS h_company_3 ON t.company_id = h_company_3.parent_id\nWHERE ((h_company_3.distance >= 0 AND h_company_3.company_id = ?) OR rc.id IS NULL)\nGROUP BY t.default_code, t.detailed_type, pc.complete_name\nLIMIT 10",
+      "error": "",
+      "sample_data": [
+        {
+          "Internal Reference": null,
+          "Product Type": "service",
+          "Product Category": "All",
+          "Sales Price": "100.00"
+        }
+      ]
+    },
+    {
+      "id": "T55",
+      "name": "聚合：按产品分类统计数量",
+      "category": "聚合分析",
+      "model": "OdooProductTemplateQueryModel",
+      "success": true,
+      "row_count": 1,
+      "total": 1,
+      "duration_ms": 2.35,
+      "sql": "SELECT pc.complete_name AS \"Product Category\", COUNT(DISTINCT t.id) AS \"Product Count\"\nFROM product_template AS t\nLEFT JOIN product_category AS pc ON t.categ_id = pc.id\nLEFT JOIN res_company AS rc ON t.company_id = rc.id\nLEFT JOIN res_company_closure AS h_company_3 ON t.company_id = h_company_3.parent_id\nWHERE ((h_company_3.distance >= 0 AND h_company_3.company_id = ?) OR rc.id IS NULL)\nGROUP BY pc.complete_name\nORDER BY \"Product Count\" DESC\nLIMIT 1000",
+      "error": "",
+      "sample_data": [
+        {
+          "Product Category": "All",
+          "Product Count": 1
         }
       ]
     }

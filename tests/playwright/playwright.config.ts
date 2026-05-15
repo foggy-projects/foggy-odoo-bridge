@@ -3,7 +3,7 @@ import { defineConfig, devices } from '@playwright/test';
 /**
  * Foggy Odoo Bridge — Playwright E2E Test Configuration
  *
- * Tests the Odoo web UI: Settings, Setup Wizard, API Keys, AI Chat.
+ * Tests the Odoo web UI: Settings, Setup Wizard, and API Keys.
  * Requires Odoo running at http://localhost:8069.
  */
 export default defineConfig({

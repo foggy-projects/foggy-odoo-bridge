@@ -1,5 +1,32 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
+    <data noupdate="0">
+
+        <record id="module_category_foggy_mcp" model="ir.module.category">
+            <field name="name">Foggy MCP</field>
+            <field name="sequence">100</field>
+            <field name="visible" eval="True"/>
+        </record>
+
+        <record id="group_foggy_mcp_user" model="res.groups">
+            <field name="name">Foggy MCP User</field>
+            <field name="category_id" ref="module_category_foggy_mcp"/>
+            <field name="comment">Can use external MCP clients and manage their own Foggy MCP API key.</field>
+        </record>
+
+        <record id="group_foggy_admin" model="res.groups">
+            <field name="name">Foggy MCP Administrator</field>
+            <field name="category_id" ref="module_category_foggy_mcp"/>
+            <field name="implied_ids" eval="[(4, ref('group_foggy_mcp_user'))]"/>
+            <field name="comment">Can manage Foggy MCP system configuration and all users' API keys.</field>
+        </record>
+
+        <record id="base.group_system" model="res.groups">
+            <field name="implied_ids" eval="[(4, ref('group_foggy_admin'))]"/>
+        </record>
+
+    </data>
+
     <data noupdate="1">
 
         <!-- Users can only see their own API keys -->
@@ -7,7 +34,7 @@
             <field name="name">Foggy API Key: Own Keys Only</field>
             <field name="model_id" ref="model_foggy_api_key"/>
             <field name="domain_force">[('user_id', '=', user.id)]</field>
-            <field name="groups" eval="[(4, ref('base.group_user'))]"/>
+            <field name="groups" eval="[(4, ref('group_foggy_mcp_user'))]"/>
             <field name="perm_read" eval="True"/>
             <field name="perm_write" eval="True"/>
             <field name="perm_create" eval="True"/>
@@ -19,7 +46,7 @@
             <field name="name">Foggy API Key: Admin Full Access</field>
             <field name="model_id" ref="model_foggy_api_key"/>
             <field name="domain_force">[(1, '=', 1)]</field>
-            <field name="groups" eval="[(4, ref('base.group_system'))]"/>
+            <field name="groups" eval="[(4, ref('group_foggy_admin'))]"/>
             <field name="perm_read" eval="True"/>
             <field name="perm_write" eval="True"/>
             <field name="perm_create" eval="True"/>

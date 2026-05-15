@@ -5,3 +5,4 @@ from . import permission_bridge  # noqa: F401
 from . import engine_backend  # noqa: F401
 from . import gateway_backend  # noqa: F401
 from . import engine_factory  # noqa: F401
+from . import odoo_namespace  # noqa: F401

@@ -61,7 +61,7 @@ def _query_model(session, model, payload):
         'jsonrpc': '2.0', 'id': 1,
         'method': 'tools/call',
         'params': {
-            'name': 'dataset.query_model',
+            'name': 'dataset__query_model',
             'arguments': {'model': model, 'payload': payload},
         }
     }
@@ -287,7 +287,7 @@ class TestResPartnerDirect:
         s = requests.Session()
         s.headers.update({
             'Content-Type': 'application/json',
-            'X-NS': 'odoo',
+            'X-NS': 'odoo17',
         })
         try:
             r = s.get(f'{foggy_url}/actuator/health', timeout=5)
@@ -304,7 +304,7 @@ class TestResPartnerDirect:
             'jsonrpc': '2.0', 'id': 1,
             'method': 'tools/call',
             'params': {
-                'name': 'dataset.query_model',
+                'name': 'dataset__query_model',
                 'arguments': {
                     'model': 'OdooResPartnerQueryModel',
                     'payload': {
@@ -330,7 +330,7 @@ class TestResPartnerDirect:
             'jsonrpc': '2.0', 'id': 1,
             'method': 'tools/call',
             'params': {
-                'name': 'dataset.query_model',
+                'name': 'dataset__query_model',
                 'arguments': {
                     'model': 'OdooResPartnerQueryModel',
                     'payload': {

@@ -96,6 +96,19 @@ PRO_MODELS=(
   "OdooProjectTaskQueryModel"
 )
 
+PRO_PATTERNS=(
+  "OdooMrpProduction"
+  "OdooProjectTask"
+  "MrpProduction"
+  "ProjectTask"
+  "MrpBom"
+  "MrpWorkorder"
+  "mrp_production"
+  "project_task"
+  "mrp.production"
+  "project.task"
+)
+
 for model in "${PRO_MODELS[@]}"; do
   if find "$STAGING_DIR" -name "${model}.*" 2>/dev/null | grep -q .; then
     echo "ERROR: Pro model detected in community bundle: $model" >&2
@@ -103,6 +116,17 @@ for model in "${PRO_MODELS[@]}"; do
     exit 1
   fi
 done
+
+while IFS= read -r -d '' file; do
+  rel="${file#"$STAGING_DIR/"}"
+  for pattern in "${PRO_PATTERNS[@]}"; do
+    if grep -q "$pattern" "$file"; then
+      echo "ERROR: Pro-only identifier '$pattern' detected in community bundle: $rel" >&2
+      echo "  The registry community bundle should not contain pro-only metadata." >&2
+      exit 1
+    fi
+  done
+done < <(find "$STAGING_DIR" -type f \( -name "*.tm" -o -name "*.qm" -o -name "*.fsscript" -o -name "*.md" \) -print0 2>/dev/null || true)
 
 # ---------- diff / apply ----------
 echo ""

@@ -1,7 +1,7 @@
 {
-  "registry": "D:\\foggy-projects\\foggy-data-mcp\\foggy-model-registry\\data",
+  "registry": "/mnt/d/foggy-projects/foggy-data-mcp/foggy-odoo-bridge/../foggy-model-registry/data",
   "package": "foggy.odoo.community",
   "version": "1.1.9",
-  "checksum": "sha256:99dfba3337e7cf82ebd7a990dcadb9e3428af95f723cab4b5c4630af11e2f2f8",
-  "content_checksum": "sha256:93a4a5bee662baf1892a68e6196fdca9057a0215c66b97ad92de6ff48888219b"
+  "checksum": "sha256:c676a75f96eb2b655a88bff5d0a346cfa69309c5d5bd1ddae4b4fb63e323264e",
+  "content_checksum": "sha256:9d01bd5c7822e2c21fb9bafc9608435c3144824a6552d8fbd49da434d869a97a"
 }
