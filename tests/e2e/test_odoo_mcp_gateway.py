@@ -131,6 +131,10 @@ class TestOdooToolsList:
         tool_names = [t['name'] for t in tools]
         assert 'dataset__query_model' in tool_names, \
             f'dataset__query_model not found in: {tool_names}'
+        assert 'dataset__list_models' in tool_names, \
+            f'dataset__list_models not found in: {tool_names}'
+        assert 'dataset__get_metadata' not in tool_names, \
+            f'deprecated dataset__get_metadata must not be exposed: {tool_names}'
         assert all('.' not in name for name in tool_names), \
             f'MCP public tool names must be strict-client safe: {tool_names}'
 

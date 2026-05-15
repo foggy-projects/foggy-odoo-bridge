@@ -30,6 +30,8 @@ from ..services.odoo_namespace import resolve_configured_foggy_namespace
 from ..services.tool_names import (
     ENGINE_TOOL_NAMES,
     ENGINE_TOOL_QUERY_MODEL,
+    TOOL_DESCRIBE_MODEL,
+    TOOL_LIST_MODELS,
     replace_tool_name_mentions,
     to_engine_tool_name,
     to_public_tool_name,
@@ -40,6 +42,8 @@ _logger = logging.getLogger(__name__)
 # Protocol version supported
 PROTOCOL_VERSION = '2024-11-05'
 PUBLIC_TOOL_NAME_RE = re.compile(r'^[a-zA-Z0-9_-]{1,64}$')
+REMOVED_TOOL_NAMES = {'dataset__get_metadata'}
+REMOVED_ENGINE_TOOL_NAMES = {'dataset.get_metadata'}
 
 # Singleton-like registries (lazily initialized per worker process)
 _tool_registry = None
@@ -101,6 +105,17 @@ def _reset_singletons():
     _engine_backend = None
     _field_mapping_registry = None
     _model_mapping_discovered_at = 0
+
+
+def _drop_removed_tools(tools):
+    """Remove deprecated tools from tools/list output."""
+    return [
+        tool for tool in tools or []
+        if not (
+            isinstance(tool, dict)
+            and tool.get('name') in (REMOVED_TOOL_NAMES | REMOVED_ENGINE_TOOL_NAMES)
+        )
+    ]
 
 
 def _public_tool_definitions(tools):
@@ -199,9 +214,14 @@ class McpController(http.Controller):
             else:
                 return self._jsonrpc_error(request_id, -32601, f'Method not found: {method}')
 
-            # Check if result is an error response
+            # Handlers may return {"error": {...}}; surface it as a JSON-RPC error.
             if isinstance(result, dict) and 'error' in result:
-                return self._jsonrpc_response(request_id, result=result)
+                error = result.get('error') or {}
+                return _json_response({
+                    'jsonrpc': '2.0',
+                    'id': request_id,
+                    'error': error,
+                })
 
             return self._jsonrpc_response(request_id, result=result)
 
@@ -261,7 +281,9 @@ class McpController(http.Controller):
         try:
             registry = _get_tool_registry(env)
             tools = registry.get_tools_for_user(env, user.id)
+            tools = _drop_removed_tools(tools)
             tools = _public_tool_definitions(tools)
+            tools = _drop_removed_tools(tools)
         except Exception as e:
             _logger.error("Failed to load tools: %s", e, exc_info=True)
             return {
@@ -296,6 +318,17 @@ class McpController(http.Controller):
 
         _logger.info("tools/call: user=%s, tool=%s, trace_id=%s",
                      user.login, tool_name, trace_id)
+
+        if tool_name in REMOVED_TOOL_NAMES or tool_name in REMOVED_ENGINE_TOOL_NAMES:
+            return {
+                'error': {
+                    'code': -32602,
+                    'message': (
+                        f'{tool_name} has been removed from Odoo bridge. '
+                        f'Use {TOOL_LIST_MODELS} first, then {TOOL_DESCRIBE_MODEL}.'
+                    ),
+                }
+            }
 
         if tool_name in ENGINE_TOOL_NAMES:
             _logger.warning(

@@ -8,7 +8,7 @@ a static DIRECT_FIELD_MAP for every model.
 
 Architecture (two-phase loading):
     Phase 1 — Discovery:
-        → call dataset.get_metadata (JSON) once
+        → call dataset.list_models once
         → parse models section → {fact_table: qm_model} + qm_model list
     Phase 2 — Detail:
         → call dataset.describe_model_internal × N (per model)
@@ -91,8 +91,8 @@ class FieldMappingRegistry:
         """
         Two-phase metadata loading:
 
-        Phase 1 (Discovery): call dataset.get_metadata once to discover all
-            QM model names and their factTable mappings.
+        Phase 1 (Discovery): call dataset.list_models once to discover all
+            QM model names. Table mappings are supplemented from model details.
         Phase 2 (Detail): call dataset.describe_model_internal per model to
             build per-model column maps (sourceColumn → qm_field).
 
@@ -163,10 +163,9 @@ class FieldMappingRegistry:
 
     def _discover_models(self):
         """
-        Phase 1: Call dataset.get_metadata to discover all QM models and factTables.
+        Phase 1: Call dataset.list_models to discover all QM models.
 
-        This breaks the circular dependency on MODEL_MAPPING — the QM model list
-        comes directly from the Foggy server.
+        This avoids depending on the removed dataset.get_metadata MCP tool.
 
         Returns:
             tuple: (qm_models, table_to_model)
@@ -175,29 +174,50 @@ class FieldMappingRegistry:
         """
         try:
             response = self._backend.call_tools_call(
-                'dataset.get_metadata', {'format': 'json'}
+                'dataset.list_models', {}
             )
             data = self._extract_metadata(response)
             if not data:
-                _logger.debug("get_metadata returned no data, falling back to MODEL_MAPPING")
+                _logger.debug("list_models returned no data, falling back to MODEL_MAPPING")
                 return [], {}
 
-            models_section = data.get('models', {})
             qm_models = []
             table_to_model = {}
-            for qm_name, info in models_section.items():
-                qm_models.append(qm_name)
-                fact_table = info.get('factTable') if isinstance(info, dict) else None
-                if fact_table:
-                    bare = self._strip_schema(fact_table)
-                    table_to_model[bare] = qm_name
+
+            items = data.get('items')
+            if isinstance(items, list):
+                for item in items:
+                    if not isinstance(item, dict):
+                        continue
+                    qm_name = item.get('model') or item.get('name')
+                    if not isinstance(qm_name, str) or not qm_name:
+                        continue
+                    qm_models.append(qm_name)
+                    for key in ('table', 'factTable'):
+                        table_name = item.get(key)
+                        if isinstance(table_name, str) and table_name:
+                            bare = self._strip_schema(table_name)
+                            if bare:
+                                table_to_model[bare] = qm_name
+
+            if not qm_models:
+                raw_models = data.get('models')
+                if isinstance(raw_models, list):
+                    qm_models = [m for m in raw_models if isinstance(m, str) and m]
+                elif isinstance(raw_models, dict):
+                    qm_models = [m for m in raw_models if isinstance(m, str) and m]
+                    for qm_name, info in raw_models.items():
+                        fact_table = info.get('factTable') if isinstance(info, dict) else None
+                        if fact_table:
+                            bare = self._strip_schema(fact_table)
+                            table_to_model[bare] = qm_name
 
             _logger.info("Discovery: %d QM models, %d factTable mappings",
                          len(qm_models), len(table_to_model))
             return qm_models, table_to_model
 
         except Exception as e:
-            _logger.warning("Model discovery via get_metadata failed: %s", e)
+            _logger.warning("Model discovery via list_models failed: %s", e)
             return [], {}
 
     @staticmethod

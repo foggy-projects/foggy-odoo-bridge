@@ -38,10 +38,11 @@ MODEL_TOOL_NAMES = {'dataset.query_model'}
 _not_installed_warned = set()
 
 # Tool names that are always available (no model restriction)
-# Note: actual Foggy tool names are dataset.get_metadata and dataset.describe_model_internal
+# dataset.get_metadata is deprecated at the Odoo bridge boundary; use
+# dataset.list_models for discovery and dataset.describe_model_internal for details.
 UNIVERSAL_TOOL_NAMES = {
     'dataset.list_models', 'dataset.get_schema', 'dataset_nl.query',  # legacy names
-    'dataset.get_metadata', 'dataset.describe_model_internal',         # current Foggy names
+    'dataset.describe_model_internal',
 }
 
 # Tools blocked in this version (deferred to future releases)

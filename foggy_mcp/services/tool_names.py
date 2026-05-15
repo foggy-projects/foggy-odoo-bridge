@@ -8,18 +8,15 @@ Odoo bridge translates at the public MCP boundary.
 
 TOOL_QUERY_MODEL = "dataset__query_model"
 TOOL_LIST_MODELS = "dataset__list_models"
-TOOL_GET_METADATA = "dataset__get_metadata"
 TOOL_DESCRIBE_MODEL = "dataset__describe_model_internal"
 
 ENGINE_TOOL_QUERY_MODEL = "dataset.query_model"
 ENGINE_TOOL_LIST_MODELS = "dataset.list_models"
-ENGINE_TOOL_GET_METADATA = "dataset.get_metadata"
 ENGINE_TOOL_DESCRIBE_MODEL = "dataset.describe_model_internal"
 
 PUBLIC_TO_ENGINE_TOOL_NAMES = {
     TOOL_QUERY_MODEL: ENGINE_TOOL_QUERY_MODEL,
     TOOL_LIST_MODELS: ENGINE_TOOL_LIST_MODELS,
-    TOOL_GET_METADATA: ENGINE_TOOL_GET_METADATA,
     TOOL_DESCRIBE_MODEL: ENGINE_TOOL_DESCRIBE_MODEL,
 }
 

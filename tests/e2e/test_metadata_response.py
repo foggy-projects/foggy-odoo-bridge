@@ -2,10 +2,10 @@
 """
 E2E tests: Metadata & describe_model response validation.
 
-Regression tests for the metadata empty-response bug:
-- describe_model_internal was returning {} due to
-  SemanticMetadataResponse.models exclude=True
-- Fixed by using SemanticQueryService.get_metadata_v3() directly
+Regression tests for the model discovery and metadata detail path:
+- dataset__get_metadata is removed from the public Odoo bridge surface
+- dataset__list_models is used for discovery
+- dataset__describe_model_internal returns per-model field details
 
 Default format is markdown (correct field names for own dimensions).
 JSON format has a known Python-side bug where own dimensions get $id suffix.
@@ -46,6 +46,14 @@ def authed_session():
 
 def _call_odoo_mcp(session, tool_name, arguments):
     """Call Odoo MCP tool and return parsed text content (raw string)."""
+    body = _call_odoo_mcp_body(session, tool_name, arguments)
+    assert 'error' not in body, f'RPC error: {body.get("error")}'
+    text = body['result']['content'][0]['text']
+    return text
+
+
+def _call_odoo_mcp_body(session, tool_name, arguments):
+    """Call Odoo MCP tool and return the JSON-RPC response body."""
     payload = {
         'jsonrpc': '2.0',
         'id': 1,
@@ -55,30 +63,21 @@ def _call_odoo_mcp(session, tool_name, arguments):
     r = session.post(f'{ODOO_MCP_URL}/foggy-mcp/rpc', json=payload)
     assert r.status_code == 200, f'HTTP {r.status_code}: {r.text[:200]}'
     body = r.json()
-    assert 'error' not in body, f'RPC error: {body.get("error")}'
-    text = body['result']['content'][0]['text']
-    return text
+    return body
 
 
 # ═══════════════════════════════════════════════════════════════
-#  get_metadata (default: markdown)
+#  list_models discovery
 # ═══════════════════════════════════════════════════════════════
 
-class TestGetMetadata:
-    """Verify dataset__get_metadata returns complete model info."""
+class TestListModels:
+    """Verify dataset__list_models is the public discovery tool."""
 
-    def test_metadata_not_empty(self, authed_session):
-        """Regression: get_metadata must NOT return empty string or {}."""
-        text = _call_odoo_mcp(authed_session, 'dataset__get_metadata', {})
-        assert len(text) > 100, (
-            f"get_metadata returned too little content ({len(text)} chars)! "
-            "This is a regression — SemanticMetadataResponse.models "
-            "exclude=True was not bypassed."
-        )
-
-    def test_metadata_contains_all_models(self, authed_session):
-        """All 9 Odoo models should be mentioned in metadata."""
-        text = _call_odoo_mcp(authed_session, 'dataset__get_metadata', {})
+    def test_list_models_contains_core_models(self, authed_session):
+        """Core Odoo models should be discoverable via list_models."""
+        text = _call_odoo_mcp(authed_session, 'dataset__list_models', {})
+        data = json.loads(text)
+        models = data.get('models', [])
         expected_models = [
             'OdooSaleOrderQueryModel',
             'OdooPurchaseOrderQueryModel',
@@ -90,19 +89,15 @@ class TestGetMetadata:
             'OdooCrmLeadQueryModel',
         ]
         for m in expected_models:
-            assert m in text, f"Model '{m}' not found in metadata output"
+            assert m in models, f"Model '{m}' not found in list_models output"
 
-    def test_metadata_json_format(self, authed_session):
-        """JSON format should return V3 with version, fields, models."""
-        text = _call_odoo_mcp(
-            authed_session, 'dataset__get_metadata', {'format': 'json'})
-        data = json.loads(text)
-        assert data.get('version') == 'v3', \
-            f"Expected version='v3', got {data.get('version')}"
-        assert 'fields' in data, "Missing 'fields' in JSON metadata"
-        assert 'models' in data, "Missing 'models' in JSON metadata"
-        assert len(data['fields']) >= 50, \
-            f"Expected 50+ fields, got {len(data['fields'])}"
+    def test_get_metadata_is_removed(self, authed_session):
+        """dataset__get_metadata is deprecated and must not be callable."""
+        body = _call_odoo_mcp_body(authed_session, 'dataset__get_metadata', {})
+        error = body.get('error')
+        assert error, 'Expected dataset__get_metadata to return a JSON-RPC error'
+        assert 'removed from Odoo bridge' in error.get('message', '')
+        assert 'dataset__list_models' in error.get('message', '')
 
 
 # ═══════════════════════════════════════════════════════════════

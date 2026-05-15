@@ -159,7 +159,7 @@ ir.rule.domain_force (波兰表达式)
 **职责**: 动态加载 Foggy 元数据，构建字段映射
 
 **两阶段加载**:
-1. **Discovery**: 调用 `dataset.get_metadata` 发现所有 QM 模型
+1. **Discovery**: 调用 `dataset.list_models` 发现所有 QM 模型
 2. **Detail**: 调用 `dataset.describe_model_internal` 获取字段映射
 
 **用途**:

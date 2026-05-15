@@ -81,7 +81,7 @@ class MockFoggyClient:
     """Mock FoggyClient that returns predefined metadata responses.
 
     Supports two-phase loading:
-    - Phase 1: dataset.get_metadata → returns discovery_response
+    - Phase 1: dataset.list_models → returns discovery_response
     - Phase 2: dataset.describe_model_internal → returns per-model responses
     """
 
@@ -89,7 +89,7 @@ class MockFoggyClient:
         """
         Args:
             responses: dict of {model_name: response_data} for describe_model_internal
-            discovery_response: response for dataset.get_metadata (Phase 1)
+            discovery_response: response for dataset.list_models (Phase 1)
         """
         self._responses = responses or {}
         self._discovery_response = discovery_response
@@ -100,7 +100,7 @@ class MockFoggyClient:
         self.call_count += 1
         self.calls.append((tool_name, dict(arguments)))
 
-        if tool_name == 'dataset.get_metadata':
+        if tool_name == 'dataset.list_models':
             if self._discovery_response is not None:
                 return self._discovery_response
             raise ValueError("No discovery response configured")
@@ -491,7 +491,7 @@ class TestRegistryIntegration(_ModelMappingGuard):
 # ═══════════════════════════════════════════════════════════════════
 
 class TestDiscoverModels:
-    """Test the Phase 1 discovery via dataset.get_metadata."""
+    """Test the Phase 1 discovery via dataset.list_models."""
 
     def test_discover_models_basic(self):
         """Discovery extracts QM model names and factTables."""
@@ -556,7 +556,7 @@ class TestDiscoverModels:
         assert table_to_model == {'table_a': 'ModelA'}
 
     def test_discover_models_failure_returns_empty(self):
-        """If get_metadata fails, returns empty lists."""
+        """If list_models fails, returns empty lists."""
         client = MockFoggyClient()  # No discovery_response → will raise
         registry = FieldMappingRegistry(client)
 
@@ -642,7 +642,7 @@ class TestTwoPhaseLoading:
             mapping.update(original)
 
     def test_phase1_call_then_phase2_calls(self):
-        """Verify the call sequence: get_metadata → describe_model_internal × N."""
+        """Verify the call sequence: list_models → describe_model_internal × N."""
         discovery_data = {
             'fields': {},
             'models': {
@@ -666,8 +666,8 @@ class TestTwoPhaseLoading:
         registry = FieldMappingRegistry(client)
         registry.get_column_map('ModelA')
 
-        # First call should be get_metadata (Phase 1)
-        assert client.calls[0][0] == 'dataset.get_metadata'
+        # First call should be list_models (Phase 1)
+        assert client.calls[0][0] == 'dataset.list_models'
         # Subsequent calls should be describe_model_internal (Phase 2)
         phase2_calls = [c for c in client.calls if c[0] == 'dataset.describe_model_internal']
         assert len(phase2_calls) == 2

@@ -108,8 +108,6 @@ class EmbeddedBackend(EngineBackend):
         try:
             if tool_name == 'dataset.query_model':
                 return self._handle_query(arguments)
-            elif tool_name == 'dataset.get_metadata':
-                return self._handle_get_metadata(arguments)
             elif tool_name == 'dataset.describe_model_internal':
                 return self._handle_describe_model(arguments)
             elif tool_name == 'dataset.list_models':
@@ -148,24 +146,6 @@ class EmbeddedBackend(EngineBackend):
 
         response = self._accessor.query_model(model, payload)
         return self._mcp_result(response)
-
-    def _handle_get_metadata(self, arguments):
-        """处理 dataset.get_metadata 调用。
-
-        默认使用 markdown 格式（与 Java LocalDatasetAccessor 一致），
-        因为 Python V3 JSON 版的自有维度字段名有 $id 后缀 Bug。
-        Markdown 版正确且 token 更少（~40-60%）。
-
-        This keeps the default path aligned with the currently validated
-        metadata behavior in the embedded Python engine.
-        """
-        fmt = arguments.get('format', 'markdown')
-        if fmt == 'json':
-            result = self._service.get_metadata_v3()
-            return self._mcp_result(result)
-        else:
-            result = self._service.get_metadata_v3_markdown()
-            return self._mcp_result(result)
 
     def _handle_describe_model(self, arguments):
         """处理 dataset.describe_model_internal 调用。
@@ -249,26 +229,14 @@ class EmbeddedBackend(EngineBackend):
             }
         })
 
-        # dataset.get_metadata
-        tools.append({
-            'name': 'dataset.get_metadata',
-            'description': 'Get a metadata overview for all available query models.',
-            'inputSchema': {
-                'type': 'object',
-                'properties': {
-                    'format': {
-                        'type': 'string',
-                        'description': 'Output format.',
-                        'default': 'json',
-                    },
-                },
-            }
-        })
-
         # dataset.list_models
         tools.append({
             'name': 'dataset.list_models',
-            'description': 'List the query models loaded by the semantic engine.',
+            'description': (
+                'List the query models loaded by the semantic engine. '
+                'Use this first for model discovery, then call '
+                'dataset.describe_model_internal for field details.'
+            ),
             'inputSchema': {
                 'type': 'object',
                 'properties': {},

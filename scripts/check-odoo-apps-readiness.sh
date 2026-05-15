@@ -146,7 +146,6 @@ if tool_names_path.exists():
     expected_public_tools = {
         "dataset__query_model",
         "dataset__list_models",
-        "dataset__get_metadata",
         "dataset__describe_model_internal",
     }
     if public_tool_values != expected_public_tools:
@@ -155,6 +154,8 @@ if tool_names_path.exists():
     for name in public_tool_values:
         if not public_name_pattern.fullmatch(name):
             fail(f"Public MCP tool name is not strict-client safe: {name}")
+    if "dataset__get_metadata" in tool_names_source or "dataset.get_metadata" in tool_names_source:
+        fail("Deprecated dataset get_metadata tool must not be exposed in public tool mapping")
 else:
     fail("Missing services/tool_names.py public MCP tool-name mapping")
 

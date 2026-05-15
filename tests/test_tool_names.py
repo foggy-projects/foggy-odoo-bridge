@@ -24,6 +24,8 @@ def test_public_tool_names_match_strict_mcp_regex():
 
     for name in _tool_names.PUBLIC_TOOL_NAMES:
         assert pattern.fullmatch(name), name
+    assert 'dataset__get_metadata' not in _tool_names.PUBLIC_TOOL_NAMES
+    assert 'dataset.get_metadata' not in _tool_names.ENGINE_TOOL_NAMES
 
 
 def test_engine_tool_names_translate_to_public_names():
