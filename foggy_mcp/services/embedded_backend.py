@@ -113,10 +113,10 @@ class EmbeddedBackend(EngineBackend):
             elif tool_name == 'dataset.list_models':
                 return self._handle_list_models()
             else:
-                return self._mcp_result(f"未知工具：{tool_name}")
+                return self._mcp_result(f"Unknown tool: {tool_name}")
         except Exception as e:
             _logger.error("内嵌引擎执行失败：%s", e, exc_info=True)
-            return self._mcp_result(f"查询执行失败：{e}")
+            return self._mcp_result(f"Query execution failed: {e}")
 
     def ping(self):
         """健康检查。"""

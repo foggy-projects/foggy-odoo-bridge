@@ -357,8 +357,8 @@ class McpController(http.Controller):
                             'error': {
                                 'code': -32005,
                                 'message': (
-                                    f'模型 {odoo_model} 对应的 Odoo 模块未安装。'
-                                    f'请在 Odoo 应用中安装相关模块后重试。'
+                                    f'The Odoo module for model {odoo_model} is not installed. '
+                                    f'Install the related Odoo app and try again.'
                                 ),
                             }
                         }
@@ -420,7 +420,7 @@ class McpController(http.Controller):
             return {
                 'error': {
                     'code': -32005,
-                    'message': f'查询引擎不可用：{e}'
+                    'message': f'Query engine is unavailable: {e}'
                 }
             }
 

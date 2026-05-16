@@ -8,6 +8,7 @@ TM/QM 文件加载器
 import os
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 from abc import ABC, abstractmethod
@@ -29,9 +30,86 @@ from foggy.dataset_model.impl.model import (
     DbModelMeasureImpl,
     DimensionJoinDef,
     DimensionPropertyDef,
+    ExplicitJoinDef,
+    ExplicitJoinConditionDef,
 )
+from foggy.dataset_model.proxy import ColumnRef, DimensionProxy, JoinBuilder, TableModelProxy
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_odoo_major_version(value: Optional[str]) -> Optional[int]:
+    """Parse an Odoo major version from an environment-style value."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    major = text.split(".", 1)[0]
+    try:
+        return int(major)
+    except (TypeError, ValueError):
+        return None
+
+
+def _infer_odoo_version_text_from_namespace(namespace: Optional[str]) -> Optional[str]:
+    """Infer an Odoo version profile from a model namespace."""
+    if not namespace:
+        return None
+    text = str(namespace).strip()
+    if text == "odoo":
+        return "17"
+
+    match = re.match(r"^odoo(?P<major>\d+)(?:[._-](?P<minor>\d+))?", text)
+    if not match:
+        return None
+
+    major = match.group("major")
+    minor = match.group("minor")
+    return f"{major}.{minor}" if minor else major
+
+
+def _build_odoo_env_exports(
+    namespace: Optional[str] = None,
+    odoo_env: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Return exports for FSScript ``import ... from '@odooEnv'``."""
+    explicit_env = odoo_env or {}
+    version_text = (
+        explicit_env.get("odooVersionText")
+        or explicit_env.get("versionText")
+        or explicit_env.get("odooVersion")
+        or explicit_env.get("odooMajorVersion")
+        or _infer_odoo_version_text_from_namespace(namespace)
+        or os.environ.get("FOGGY_ODOO_VERSION")
+        or os.environ.get("ODOO_VERSION")
+    )
+    major_source = (
+        explicit_env.get("odooMajorVersion")
+        or explicit_env.get("odooVersion")
+        or version_text
+    )
+    major = _parse_odoo_major_version(major_source)
+    effective_namespace = explicit_env.get("namespace") or namespace
+
+    def env(name: str, default: Any = None) -> Any:
+        return os.environ.get(str(name), default)
+
+    exports = {
+        "namespace": effective_namespace,
+        "odooVersion": major,
+        "odooMajorVersion": major,
+        "odooVersionText": str(version_text) if version_text is not None else None,
+        "env": env,
+    }
+    for key, value in explicit_env.items():
+        exports[key] = value
+    return exports
+
+
+def _extra_metadata(definition: Dict[str, Any], consumed_keys: set) -> Dict[str, Any]:
+    """Return definition keys that should survive as Pydantic extras."""
+    return {k: v for k, v in definition.items() if k not in consumed_keys}
 
 
 class _TmRefProxy(dict):
@@ -83,7 +161,9 @@ def _extract_allowed_fields(column_groups: List[Dict[str, Any]]) -> set:
             # V1 fallback: { name: 'department' }
             if field is None:
                 field = item.get("name")
-            if isinstance(field, str) and field:
+            if isinstance(field, (ColumnRef, DimensionProxy)):
+                refs.add(field.field_ref)
+            elif isinstance(field, str) and field:
                 refs.add(field)
     return refs
 
@@ -127,6 +207,159 @@ def _apply_column_group_filter(
     model.measures = {
         k: v for k, v in model.measures.items() if k in base_names
     }
+
+
+def _collect_field_model_map(
+    column_groups: List[Dict[str, Any]],
+    base_model_name: str,
+) -> Dict[str, str]:
+    """Build QM field -> source model mapping from evaluated columnGroups."""
+    field_model_map: Dict[str, str] = {}
+    for group in column_groups:
+        items = group.get("items") or []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            field = item.get("ref")
+            if isinstance(field, (ColumnRef, DimensionProxy)):
+                field_model_map[field.field_ref] = field.model_name
+            elif isinstance(field, str) and field:
+                field_model_map.setdefault(field, base_model_name)
+    return field_model_map
+
+
+def _merge_explicit_join_fields(
+    alias_model: DbTableModelImpl,
+    tm_models: Dict[str, DbTableModelImpl],
+    allowed_refs: set,
+) -> None:
+    """Merge referenced fields from joined models into the QM alias model."""
+    for ref in allowed_refs:
+        source_model_name = alias_model.field_model_map.get(ref)
+        if not source_model_name or source_model_name == alias_model.name:
+            continue
+        source_model = tm_models.get(source_model_name)
+        if source_model is None:
+            continue
+
+        base_name = ref.split("$", 1)[0]
+
+        if base_name in source_model.dimensions and base_name not in alias_model.dimensions:
+            alias_model.dimensions[base_name] = source_model.dimensions[base_name].model_copy(deep=True)
+
+        if base_name in source_model.columns and base_name not in alias_model.columns:
+            alias_model.columns[base_name] = source_model.columns[base_name].model_copy(deep=True)
+
+        if base_name in source_model.measures and base_name not in alias_model.measures:
+            alias_model.measures[base_name] = source_model.measures[base_name].model_copy(deep=True)
+
+        join_def = source_model.get_dimension_join(base_name)
+        if join_def and all(existing.name != join_def.name for existing in alias_model.dimension_joins):
+            alias_model.dimension_joins.append(join_def.model_copy(deep=True))
+
+
+def _build_explicit_joins(
+    joins: List[Any],
+    tm_models: Dict[str, DbTableModelImpl],
+    base_model_name: str,
+) -> List[ExplicitJoinDef]:
+    """Convert evaluated JoinBuilder objects into runtime explicit joins."""
+    explicit_joins: List[ExplicitJoinDef] = []
+    alias_counter = 1
+    alias_map: Dict[str, str] = {base_model_name: "t"}
+
+    for join in joins:
+        if not isinstance(join, JoinBuilder) or not join.has_conditions():
+            continue
+
+        right_model = tm_models.get(join.right.model_name)
+        if right_model is None:
+            logger.warning(
+                "QM explicit join references unknown right model '%s'",
+                join.right.model_name,
+            )
+            continue
+
+        left_alias = alias_map.setdefault(join.left.model_name, "t")
+        right_alias = alias_map.setdefault(join.right.model_name, f"j{alias_counter}")
+        if right_alias == f"j{alias_counter}":
+            alias_counter += 1
+
+        explicit_joins.append(
+            ExplicitJoinDef(
+                join_type=join.join_type,
+                left_model=join.left.model_name,
+                right_model=join.right.model_name,
+                left_alias=left_alias,
+                right_alias=right_alias,
+                right_table_name=right_model.source_table,
+                right_schema_name=right_model.source_schema,
+                conditions=[
+                    ExplicitJoinConditionDef(
+                        left_model=condition.left_model_name,
+                        left_field=condition.left_field_ref,
+                        right_model=condition.right_model_name,
+                        right_field=condition.right_field_ref,
+                    )
+                    for condition in join.get_model_condition_pairs()
+                ],
+            )
+        )
+
+    return explicit_joins
+
+
+def _apply_explicit_join_metadata(
+    alias_model: DbTableModelImpl,
+    tm_models: Dict[str, DbTableModelImpl],
+    base_model_name: str,
+    column_groups: Optional[List[Dict[str, Any]]],
+    joins: Optional[List[Any]],
+) -> None:
+    """Attach explicit multi-model join metadata to a QM alias model."""
+    alias_model.field_model_map = {}
+    alias_model.model_alias_map = {base_model_name: "t"}
+    alias_model.model_table_map = {base_model_name: alias_model.source_table}
+    alias_model.model_schema_map = {base_model_name: alias_model.source_schema}
+    alias_model.explicit_joins = []
+
+    if column_groups and isinstance(column_groups, list):
+        alias_model.field_model_map.update(
+            _collect_field_model_map(column_groups, base_model_name)
+        )
+
+    if joins and isinstance(joins, list):
+        explicit_joins = _build_explicit_joins(joins, tm_models, base_model_name)
+        alias_model.explicit_joins = explicit_joins
+        for join in explicit_joins:
+            alias_model.model_alias_map[join.left_model] = join.left_alias
+            alias_model.model_alias_map[join.right_model] = join.right_alias
+            alias_model.model_table_map[join.right_model] = join.right_table_name
+            alias_model.model_schema_map[join.right_model] = join.right_schema_name
+            alias_model.model_table_map.setdefault(
+                join.left_model,
+                tm_models[join.left_model].source_table,
+            )
+            alias_model.model_schema_map.setdefault(
+                join.left_model,
+                tm_models[join.left_model].source_schema,
+            )
+
+    for field_name in list(alias_model.dimensions.keys()):
+        alias_model.field_model_map.setdefault(field_name, base_model_name)
+    for field_name in list(alias_model.columns.keys()):
+        alias_model.field_model_map.setdefault(field_name, base_model_name)
+    for field_name in list(alias_model.measures.keys()):
+        alias_model.field_model_map.setdefault(field_name, base_model_name)
+    for join_def in alias_model.dimension_joins:
+        alias_model.field_model_map.setdefault(join_def.name, base_model_name)
+        alias_model.field_model_map.setdefault(f"{join_def.name}$id", base_model_name)
+        alias_model.field_model_map.setdefault(f"{join_def.name}$caption", base_model_name)
+        for prop in join_def.properties:
+            alias_model.field_model_map.setdefault(
+                f"{join_def.name}${prop.get_name()}",
+                base_model_name,
+            )
 
 
 class TableModelLoader(ABC):
@@ -203,11 +436,39 @@ class JdbcTableModelLoader(TableModelLoader):
             elif dim_def.get("parentKey"):
                 dim_type = DimensionType.HIERARCHY
 
+            dim_extra = _extra_metadata(
+                dim_def,
+                {
+                    "name",
+                    "alias",
+                    "caption",
+                    "column",
+                    "foreignKey",
+                    "primaryKey",
+                    "captionColumn",
+                    "tableName",
+                    "joinTo",
+                    "type",
+                    "parentKey",
+                    "childKey",
+                    "closureTableName",
+                    "visible",
+                    "sortable",
+                    "filterable",
+                    "groupable",
+                    "dictClass",
+                    "properties",
+                    "description",
+                    "keyDescription",
+                    "_captionDefRaw",
+                },
+            )
             dimension = DbModelDimensionImpl(
                 name=dim_name,
                 alias=dim_def.get("alias"),
                 column=dim_def.get("column", dim_name),
                 table=dim_def.get("tableName"),
+                join_to=dim_def.get("joinTo"),
                 dimension_type=dim_type,
                 data_type=self._parse_column_type(dim_def.get("type", "string")),
                 is_hierarchical=bool(dim_def.get("parentKey")),
@@ -219,34 +480,59 @@ class JdbcTableModelLoader(TableModelLoader):
                 filterable=dim_def.get("filterable", True),
                 groupable=dim_def.get("groupable", True),
                 dictionary=dim_def.get("dictClass"),
+                description=dim_def.get("description"),
+                **dim_extra,
             )
             model.add_dimension(dimension)
 
-            # Create DimensionJoinDef if dimension has a foreign table (star-schema JOIN)
-            if dim_def.get("tableName"):
-                # Build dimension properties
-                join_props = []
-                for prop in dim_def.get("properties", []):
-                    if isinstance(prop, dict):
-                        join_props.append(DimensionPropertyDef(
+            # Create DimensionJoinDef for physical joins and for tableless
+            # self dimensions that expose property paths such as dateOrder$month.
+            dim_props = dim_def.get("properties", [])
+            if dim_def.get("tableName") or dim_props:
+                join_def = DimensionJoinDef(
+                    name=dim_name,
+                    table_name=dim_def.get("tableName"),
+                    foreign_key=dim_def.get("column", dim_name),
+                    join_to=dim_def.get("joinTo"),
+                    primary_key=dim_def.get("primaryKey") or dim_def.get("column", dim_name),
+                    caption_column=dim_def.get("captionColumn") or (
+                        dim_def.get("column") if not dim_def.get("tableName") else None
+                    ),
+                    caption=dim_def.get("alias"),
+                    description=dim_def.get("description"),
+                    key_description=dim_def.get("keyDescription"),
+                    properties=[
+                        DimensionPropertyDef(
                             column=prop.get("column", ""),
                             name=prop.get("name"),
                             caption=prop.get("caption") or prop.get("alias"),
                             description=prop.get("description"),
                             data_type=prop.get("type", "STRING"),
-                        ))
-
-                join_def = DimensionJoinDef(
-                    name=dim_name,
-                    table_name=dim_def["tableName"],
-                    foreign_key=dim_def.get("column", dim_name),
-                    primary_key=dim_def.get("primaryKey", "id"),
-                    caption_column=dim_def.get("captionColumn"),
-                    caption=dim_def.get("alias"),
-                    description=dim_def.get("description"),
-                    key_description=dim_def.get("keyDescription"),
-                    properties=join_props,
+                            formula_def_raw=prop.get("formulaDef"),
+                            dialect_formula_def_raw=prop.get("dialectFormulaDef"),
+                            **_extra_metadata(
+                                prop,
+                                {
+                                    "column",
+                                    "name",
+                                    "caption",
+                                    "alias",
+                                    "description",
+                                    "type",
+                                    "formulaDef",
+                                    "dialectFormulaDef",
+                                },
+                            ),
+                        )
+                        for prop in dim_props
+                        if isinstance(prop, dict)
+                    ],
+                    **dim_extra,
                 )
+                # Attach raw captionDef for formula-based caption resolution
+                raw_cdef = dim_def.get("_captionDefRaw")
+                if raw_cdef:
+                    join_def.caption_def_raw = raw_cdef
                 model.dimension_joins.append(join_def)
 
     def _load_measures(self, model: DbTableModelImpl, definition: Dict[str, Any], context: ModelLoadContext) -> None:
@@ -295,6 +581,21 @@ class JdbcTableModelLoader(TableModelLoader):
             # Use original column name for SQL generation (e.g., 'date_order'),
             # but register under the camelCase prop_name (e.g., 'dateOrder') as dict key.
             source_column = prop_def.get("column", prop_name)
+            prop_extra = _extra_metadata(
+                prop_def,
+                {
+                    "column",
+                    "name",
+                    "caption",
+                    "alias",
+                    "description",
+                    "type",
+                    "nullable",
+                    "primaryKey",
+                    "formulaDef",
+                    "dialectFormulaDef",
+                },
+            )
 
             column = DbColumnDef(
                 name=source_column,  # SQL column name (snake_case)
@@ -303,6 +604,9 @@ class JdbcTableModelLoader(TableModelLoader):
                 nullable=prop_def.get("nullable", True),
                 primary_key=prop_def.get("primaryKey", False),
                 comment=prop_def.get("description"),
+                formula_def_raw=prop_def.get("formulaDef"),
+                dialect_formula_def_raw=prop_def.get("dialectFormulaDef"),
+                **prop_extra,
             )
             model.columns[prop_name] = column
 
@@ -430,12 +734,16 @@ class TableModelLoaderManager:
         return [k for k in self._model_cache if k.startswith(prefix)]
 
 
-def _create_service_aware_loader(base_path: Path):
+def _create_service_aware_loader(
+    base_path: Path,
+    namespace: Optional[str] = None,
+    odoo_env: Optional[Dict[str, Any]] = None,
+):
     """Create a FileModuleLoader that handles @service imports gracefully.
 
-    Java TM/QM files import SPI services like ``@jdbcModelDictService``.
-    Python doesn't have these services, so we intercept @-prefixed imports
-    and return no-op stubs.
+    Java TM/QM files import SPI services like ``@jdbcModelDictService`` and
+    runtime environment helpers like ``@odooEnv``. Python resolves these
+    service-style imports here while preserving normal relative file imports.
 
     For normal file imports (e.g., ``../dicts.fsscript``), delegates to
     the standard FileModuleLoader with correct relative path resolution.
@@ -451,15 +759,26 @@ def _create_service_aware_loader(base_path: Path):
             return super().has_module(module_path)
 
         def load_module(self, module_path: str, context) -> Dict[str, Any]:
-            if module_path.strip("'\"").startswith("@"):
-                # Return no-op stub for @service imports
+            service_name = module_path.strip("'\"")
+            if service_name == "@jdbcModelDictService":
+                # Return no-op stub for Java-side dictionary registration.
+                return {"registerDict": lambda d: d}
+            if service_name == "@odooEnv":
+                return _build_odoo_env_exports(namespace=namespace, odoo_env=odoo_env)
+            if service_name.startswith("@"):
+                # Preserve previous fail-soft behavior for unknown Java services.
+                logger.debug("Unknown FSScript service import %s; returning no-op stub", service_name)
                 return {"registerDict": lambda d: d}
             return super().load_module(module_path, context)
 
     return ServiceAwareFileModuleLoader(base_path=base_path)
 
 
-def load_models_from_directory(model_dir: str, namespace: Optional[str] = None) -> List[DbTableModelImpl]:
+def load_models_from_directory(
+    model_dir: str,
+    namespace: Optional[str] = None,
+    odoo_env: Optional[Dict[str, Any]] = None,
+) -> List[DbTableModelImpl]:
     """Load TM and QM models from a directory containing FSScript files.
 
     Scans the directory (recursively) for:
@@ -482,6 +801,10 @@ def load_models_from_directory(model_dir: str, namespace: Optional[str] = None) 
                    When set (e.g., ``"odoo"``), model ``OdooSaleOrderModel``
                    is registered as ``"odoo:OdooSaleOrderModel"``.
                    Aligned with Java ``@EnableFoggyFramework(namespace="odoo")``.
+                   Also exposed to TM/QM as ``@odooEnv.namespace`` and used
+                   to infer the default Odoo version profile.
+        odoo_env: Optional explicit exports for ``import ... from '@odooEnv'``.
+                  Values here override namespace and environment fallback.
 
     Returns:
         List of loaded DbTableModelImpl instances (TMs + QM aliases)
@@ -507,7 +830,11 @@ def load_models_from_directory(model_dir: str, namespace: Optional[str] = None) 
     # ServiceAwareFileModuleLoader handles both:
     # - @-prefixed imports (e.g., @jdbcModelDictService) -> no-op stubs
     # - Relative file imports (e.g., ../dicts.fsscript) -> normal file loading
-    file_loader = _create_service_aware_loader(base_path=model_path)
+    file_loader = _create_service_aware_loader(
+        base_path=model_path,
+        namespace=namespace,
+        odoo_env=odoo_env,
+    )
 
     # --- Phase 1: Load all TM files ---
     tm_models: Dict[str, DbTableModelImpl] = {}  # name -> model
@@ -560,11 +887,11 @@ def load_models_from_directory(model_dir: str, namespace: Optional[str] = None) 
             ast = parser.parse_program()
 
             # Provide loadTableModel() built-in so QM can reference TMs.
-            # _TmRefProxy ensures that property accesses like ``emp.department``
-            # resolve to the field name string instead of None.
-            def load_table_model(name: str) -> _TmRefProxy:
-                """Stub for QM's loadTableModel() — returns a proxy that captures field refs."""
-                return _TmRefProxy({"__tm_ref__": name, "name": name})
+            def load_table_model(name: str):
+                """Return a real TableModelProxy for V2 QM evaluation."""
+                if name not in tm_models:
+                    return _TmRefProxy({"__tm_ref__": name, "name": name})
+                return TableModelProxy(name)
 
             evaluator = ExpressionEvaluator(
                 context={
@@ -588,7 +915,9 @@ def load_models_from_directory(model_dir: str, namespace: Optional[str] = None) 
             # Resolve the referenced TM
             model_ref = qm_def.get("model", {})
             tm_ref_name = None
-            if isinstance(model_ref, _TmRefProxy):
+            if isinstance(model_ref, TableModelProxy):
+                tm_ref_name = model_ref.model_name
+            elif isinstance(model_ref, _TmRefProxy):
                 tm_ref_name = model_ref._internal_get("__tm_ref__") or model_ref._internal_get("name")
             elif isinstance(model_ref, dict):
                 tm_ref_name = model_ref.get("__tm_ref__") or model_ref.get("name")
@@ -612,9 +941,18 @@ def load_models_from_directory(model_dir: str, namespace: Optional[str] = None) 
                 # should be exposed.  This prevents the Python engine from leaking
                 # TM dimensions/measures that the QM deliberately excluded.
                 column_groups = qm_def.get("columnGroups")
+                joins = qm_def.get("joins")
+                _apply_explicit_join_metadata(
+                    alias_model,
+                    tm_models,
+                    tm_ref_name,
+                    column_groups if isinstance(column_groups, list) else None,
+                    joins if isinstance(joins, list) else None,
+                )
                 if column_groups and isinstance(column_groups, list):
                     allowed = _extract_allowed_fields(column_groups)
                     if allowed:
+                        _merge_explicit_join_fields(alias_model, tm_models, allowed)
                         _apply_column_group_filter(alias_model, allowed)
                         logger.debug(
                             f"QM '{alias_model.name}': filtered to {len(allowed)} refs "
@@ -623,6 +961,24 @@ def load_models_from_directory(model_dir: str, namespace: Optional[str] = None) 
                             f"cols={len(alias_model.columns)}, "
                             f"measures={len(alias_model.measures)})"
                         )
+
+                predefined_calcs = []
+                if column_groups and isinstance(column_groups, list):
+                    for group in column_groups:
+                        for item in group.get("items", []):
+                            if isinstance(item, dict) and item.get("formula"):
+                                predefined_calcs.append({
+                                    "name": item.get("name"),
+                                    "caption": item.get("caption"),
+                                    "expression": item.get("formula"),
+                                    "type": item.get("type"),
+                                    "description": item.get("description"),
+                                    "emptyDefault": item.get("emptyDefault"),
+                                    "partitionBy": item.get("partitionBy"),
+                                    "windowOrderBy": item.get("windowOrderBy"),
+                                    "windowFrame": item.get("windowFrame"),
+                                })
+                alias_model.predefined_calculated_fields = predefined_calcs
 
                 models.append(alias_model)
                 logger.info(f"Loaded QM: {alias_model.name} -> {tm_ref_name} (source={qm_file.name})")
@@ -690,6 +1046,15 @@ def _adapt_fsscript_tm(model_def: Dict[str, Any]) -> Dict[str, Any]:
             d["alias"] = d.get("caption")
 
         # captionColumn is already used by JdbcTableModelLoader (no change needed)
+        # Handle captionDef (with formulaDef / dialectFormulaDef builder callables)
+        caption_def = d.get("captionDef")
+        if caption_def and isinstance(caption_def, dict):
+            # Extract column as captionColumn if not already set
+            col_val = caption_def.get("column")
+            if not d.get("captionColumn") and isinstance(col_val, str):
+                d["captionColumn"] = col_val
+            # Preserve full captionDef for formula resolution at SQL generation time
+            d["_captionDefRaw"] = caption_def
 
         # Adapt dimension properties (sub-fields on the dimension table)
         raw_props = d.get("properties", [])

@@ -9,9 +9,9 @@ Use ``model_dump(by_alias=True, exclude_none=True)`` for Java-compatible output.
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator
 
 from foggy.mcp_spi.enums import AccessMode
 
@@ -80,6 +80,7 @@ class NormalizedRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     slice: Optional[List[Dict[str, Any]]] = None
+    having: Optional[List[Dict[str, Any]]] = None
     group_by: Optional[List[Dict[str, Any]]] = Field(None, alias="groupBy")
     order_by: Optional[List[Dict[str, Any]]] = Field(None, alias="orderBy")
 
@@ -91,6 +92,15 @@ class DebugInfo(BaseModel):
     normalized: Optional[NormalizedRequest] = None
     duration_ms: Optional[float] = Field(None, alias="durationMs")
     extra: Optional[Dict[str, Any]] = None
+
+
+class SemanticInfo(BaseModel):
+    """Business-level result semantics — aligned with Java response semantic."""
+    model_config = ConfigDict(populate_by_name=True)
+
+    empty_result: Optional[bool] = Field(None, alias="emptyResult")
+    empty_reason: Optional[str] = Field(None, alias="emptyReason")
+    should_answer_directly: Optional[bool] = Field(None, alias="shouldAnswerDirectly")
 
 
 # ============================================================================
@@ -127,7 +137,9 @@ class SemanticQueryResponse(BaseModel):
     cursor: Optional[str] = None
     warnings: Optional[List[str]] = None
     debug: Optional[DebugInfo] = None
+    semantic: Optional[SemanticInfo] = None
     truncation_info: Optional[Dict[str, Any]] = Field(None, alias="truncationInfo")
+    error_detail: Optional[Dict[str, Any]] = Field(None, alias="error")
 
     # Internal-only error field — excluded from JSON serialization
     _error: Optional[str] = PrivateAttr(default=None)
@@ -154,6 +166,18 @@ class SemanticQueryResponse(BaseModel):
         return None
 
     @property
+    def params(self) -> Optional[List[Any]]:
+        """Backward compat: extract positional bind params from debug.extra.
+
+        v1.4 M4: populated whenever ``_build_query`` emits a parameterised
+        SQL (e.g. calculated fields compiled by ``FormulaCompiler``).
+        ``None`` when the query didn't produce any params.
+        """
+        if self.debug and self.debug.extra:
+            return self.debug.extra.get("params")
+        return None
+
+    @property
     def columns(self) -> List[Dict[str, Any]]:
         """Backward compat: extract column defs from schema_info."""
         if self.schema_info and self.schema_info.columns:
@@ -172,9 +196,14 @@ class SemanticQueryResponse(BaseModel):
         return result
 
     @classmethod
-    def from_error(cls, error_msg: str, warnings: Optional[List[str]] = None) -> "SemanticQueryResponse":
+    def from_error(
+        cls,
+        error_msg: str,
+        warnings: Optional[List[str]] = None,
+        error_detail: Optional[Dict[str, Any]] = None,
+    ) -> "SemanticQueryResponse":
         """Create an error response (internal use)."""
-        resp = cls(warnings=warnings)
+        resp = cls(warnings=warnings, error_detail=error_detail)
         resp._error = error_msg
         return resp
 
@@ -188,8 +217,17 @@ class SemanticQueryResponse(BaseModel):
         error: Optional[str] = None,
         warnings: Optional[List[str]] = None,
         duration_ms: Optional[float] = None,
+        start: int = 0,
+        limit: Optional[int] = None,
+        has_more: Optional[bool] = None,
+        params: Optional[List[Any]] = None,
     ) -> "SemanticQueryResponse":
-        """Create from legacy (Python-internal) field names — migration helper."""
+        """Create from legacy (Python-internal) field names — migration helper.
+
+        v1.4 M4: ``params`` surfaces the positional bind params produced by
+        the query builder (e.g. ``FormulaCompiler`` bound literals) into
+        ``debug.extra["params"]``.  Exposed via the ``.params`` property.
+        """
         schema = None
         if columns_info:
             col_defs = [
@@ -202,15 +240,51 @@ class SemanticQueryResponse(BaseModel):
             ]
             schema = SchemaInfo(columns=col_defs)
 
-        extra = {"sql": sql} if sql else None
-        debug = DebugInfo(duration_ms=duration_ms, extra=extra) if (duration_ms or sql) else None
+        extra: Optional[Dict[str, Any]] = None
+        if sql or params:
+            extra = {}
+            if sql:
+                extra["sql"] = sql
+            if params:
+                extra["params"] = list(params)
+        debug = DebugInfo(duration_ms=duration_ms, extra=extra) if (duration_ms or extra) else None
+
+        # Build pagination when limit is provided (aligned with Java)
+        pagination = None
+        if limit is not None:
+            returned = len(data or [])
+            effective_total = total or returned
+            computed_has_more = has_more if has_more is not None else (start + returned < effective_total)
+            end = start + returned
+            range_desc = (
+                f"Rows {start + 1}-{end} of {effective_total}"
+                if effective_total > 0 else ""
+            )
+            pagination = PaginationInfo(
+                start=start,
+                limit=limit,
+                returned=returned,
+                total_count=effective_total,
+                has_more=computed_has_more,
+                range_description=range_desc,
+            )
+
+        semantic = None
+        if not error and not data:
+            semantic = SemanticInfo(
+                empty_result=True,
+                empty_reason="NO_MATCHING_ROWS",
+                should_answer_directly=True,
+            )
 
         resp = cls(
             items=data or [],
             schema_info=schema,
+            pagination=pagination,
             total=total or len(data or []),
             warnings=warnings if warnings else None,
             debug=debug,
+            semantic=semantic,
         )
         if error:
             resp._error = error
@@ -269,16 +343,194 @@ class SemanticMetadataResponse(BaseModel):
 
 
 # ============================================================================
+# Column Governance DTOs — v1.2
+# ============================================================================
+
+class FieldAccessDef(BaseModel):
+    """Column governance parameters — computed by Bridge, passed to engine.
+
+    * ``visible``: whitelist of field names the user may see / query.
+    * ``masking``: field-name → mask-type mapping for sensitive columns.
+
+    When the Bridge does **not** send this object the engine behaves exactly
+    as v1.1 (no governance).
+    """
+    model_config = ConfigDict(populate_by_name=True)
+
+    visible: List[str] = Field(default_factory=list)
+    masking: Dict[str, str] = Field(default_factory=dict)
+
+
+class DeniedColumn(BaseModel):
+    """Physical column denied entry for blacklist-based column governance.
+
+    Aligned with Java ``DeniedPhysicalColumn``.
+
+    * ``schema_name``: database schema (e.g. ``"public"``); ``None`` matches any.
+    * ``table``: physical table name (required).
+    * ``column``: physical column name (required).
+    """
+    model_config = ConfigDict(populate_by_name=True)
+
+    schema_name: Optional[str] = Field(None, alias="schema")
+    table: str
+    column: str
+
+
+class SystemSlice(BaseModel):
+    """System-injected slice — **not** subject to visible_fields governance.
+
+    Used by the permission bridge (ir.rule) to inject row-level filters that
+    may reference blocked columns.  The engine merges these into the WHERE
+    clause without column-visibility checks.
+    """
+
+    slices: List[Any] = Field(default_factory=list)
+
+
+# ============================================================================
+# Pivot V9 DTOs — contract shell for Java parity
+# ============================================================================
+
+class PivotMetricFilter(BaseModel):
+    """Post-aggregate filter on a pivot metric."""
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    metric: str
+    op: str
+    value: Any
+
+
+class PivotAxisField(BaseModel):
+    """Axis field object form used by Pivot V9 rows/columns."""
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    field: str
+    order_by: List[Any] = Field(default_factory=list, alias="orderBy")
+    limit: Optional[int] = None
+    having: Optional[PivotMetricFilter] = None
+    hierarchy_mode: Optional[str] = Field(None, alias="hierarchyMode")
+    expand_depth: Optional[int] = Field(None, alias="expandDepth")
+
+    @field_validator("hierarchy_mode")
+    @classmethod
+    def _validate_hierarchy_mode(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and value != "tree":
+            raise ValueError("pivot hierarchyMode only supports 'tree'")
+        return value
+
+
+class PivotMetricItem(BaseModel):
+    """Unified Pivot V9 metric item.
+
+    Runtime support is fail-closed in Python S1. The DTO exists so MCP and
+    parity tests can accept the same contract shape as the Java engine.
+    """
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    name: str
+    type: str
+    of: str
+    axis: Optional[str] = None
+    level: Optional[str] = None
+    parent_level: Optional[str] = Field(None, alias="parentLevel")
+    baseline: Optional[str] = None
+    order_by: List[Any] = Field(default_factory=list, alias="orderBy")
+
+    @field_validator("type")
+    @classmethod
+    def _validate_metric_type(cls, value: str) -> str:
+        if value not in {"native", "parentShare", "baselineRatio"}:
+            raise ValueError("pivot metric type must be native, parentShare, or baselineRatio")
+        return value
+
+    @field_validator("axis")
+    @classmethod
+    def _validate_axis(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and value != "rows":
+            raise ValueError("pivot derived metrics only support rows axis")
+        return value
+
+    @field_validator("baseline")
+    @classmethod
+    def _validate_baseline(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and value not in {"first", "last"}:
+            raise ValueError("baselineRatio baseline must be first or last")
+        return value
+
+
+class PivotOptions(BaseModel):
+    """Pivot V9 shaping options."""
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    crossjoin: bool = False
+    row_subtotals: bool = Field(False, alias="rowSubtotals")
+    column_subtotals: bool = Field(False, alias="columnSubtotals")
+    grand_total: bool = Field(False, alias="grandTotal")
+
+
+class PivotLayout(BaseModel):
+    """Pivot V9 result layout hints."""
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    metric_placement: str = Field("columns", alias="metricPlacement")
+
+    @field_validator("metric_placement")
+    @classmethod
+    def _validate_metric_placement(cls, value: str) -> str:
+        if value not in {"columns", "rows"}:
+            raise ValueError("pivot layout.metricPlacement must be columns or rows")
+        return value
+
+
+class PivotRequest(BaseModel):
+    """Pivot V9 request contract.
+
+    Python currently exposes this only as a typed contract shell and rejects
+    execution before SQL generation.
+    """
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    rows: List[Union[str, PivotAxisField]] = Field(default_factory=list)
+    columns: List[Union[str, PivotAxisField]] = Field(default_factory=list)
+    metrics: List[Union[str, PivotMetricItem]] = Field(default_factory=list)
+    properties: List[str] = Field(default_factory=list)
+    options: PivotOptions = Field(default_factory=PivotOptions)
+    output_format: str = Field("tree", alias="outputFormat")
+    layout: PivotLayout = Field(default_factory=PivotLayout)
+
+    @field_validator("output_format")
+    @classmethod
+    def _validate_output_format(cls, value: str) -> str:
+        if value not in {"flat", "grid", "tree"}:
+            raise ValueError("pivot outputFormat must be flat, grid, or tree")
+        return value
+
+
+# ============================================================================
 # SemanticMetadataRequest
 # ============================================================================
 
 class SemanticMetadataRequest(BaseModel):
     """Request for metadata."""
+    model_config = ConfigDict(populate_by_name=True)
 
     model: Optional[str] = None
     include_columns: bool = True
     include_measures: bool = True
     include_dimensions: bool = True
+    visible_fields: Optional[List[str]] = Field(
+        None,
+        alias="visibleFields",
+        description="When set, only these fields appear in the response. "
+                    "None means return all fields (v1.1 compat).",
+    )
+    denied_columns: Optional[List[DeniedColumn]] = Field(
+        None,
+        alias="deniedColumns",
+        description="Physical column blacklist for metadata field trimming. "
+                    "Converted to denied QM fields via mapping cache.",
+    )
 
 
 # ============================================================================
@@ -294,6 +546,7 @@ class SemanticQueryRequest(BaseModel):
             "columns": [...],
             "calculatedFields": [...],
             "slice": [...],
+            "having": [...],
             "groupBy": [...],
             "orderBy": [...],
             "start": 0,
@@ -301,6 +554,9 @@ class SemanticQueryRequest(BaseModel):
             "returnTotal": false,
             "distinct": false,
             "withSubtotals": false,
+            "timeWindow": {...},
+            "postAggregateCalculations": [...],
+            "pivot": {...},
             "captionMatchMode": "EXACT",
             "mismatchHandleStrategy": "ABORT"
         }
@@ -310,6 +566,7 @@ class SemanticQueryRequest(BaseModel):
     columns: List[str] = []
     calculated_fields: List[Dict[str, Any]] = Field(default_factory=list, alias="calculatedFields")
     slice: List[Any] = []
+    having: List[Any] = []
     group_by: List[Any] = Field(default_factory=list, alias="groupBy")
     order_by: List[Any] = Field(default_factory=list, alias="orderBy")
     start: int = 0
@@ -322,6 +579,54 @@ class SemanticQueryRequest(BaseModel):
     return_total: bool = Field(False, alias="returnTotal")
     distinct: bool = False
     with_subtotals: bool = Field(False, alias="withSubtotals")
+    time_window: Optional[Dict[str, Any]] = Field(
+        None,
+        alias="timeWindow",
+        description="SemanticDSL timeWindow intent. Kept as structured payload for Java parity.",
+    )
+    post_aggregate_calculations: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        alias="postAggregateCalculations",
+        description="Post-aggregate calculated aliases computed from grouped result aliases.",
+    )
+    pivot: Optional[PivotRequest] = Field(
+        None,
+        description="Pivot V9 DSL contract. Python S1 parses this shape but "
+                    "runtime execution is fail-closed until the Pivot pipeline "
+                    "is implemented.",
+    )
+
+    # --- v1.2 column governance ---
+    field_access: Optional[FieldAccessDef] = Field(
+        None,
+        alias="fieldAccess",
+        description="Column governance: visible whitelist + masking rules. "
+                    "None means no governance (v1.1 compat).",
+    )
+    system_slice: Optional[List[Any]] = Field(
+        None,
+        alias="systemSlice",
+        description="System-injected slice (ir.rule). Bypasses visible_fields checks.",
+    )
+    # --- v1.3 physical column blacklist ---
+    denied_columns: Optional[List[DeniedColumn]] = Field(
+        None,
+        alias="deniedColumns",
+        description="Physical column blacklist. Converted to denied QM fields "
+                    "via mapping cache before field validation.",
+    )
+
+    # --- Pivot Stage 5A Internal ---
+    _domain_transport_plan: Optional[Any] = PrivateAttr(default=None)
+
+    @property
+    def domain_transport_plan(self) -> Optional[Any]:
+        """Internal carrier for Pivot Stage 5A domain transport plan. Excluded from JSON/Schema."""
+        return self._domain_transport_plan
+
+    @domain_transport_plan.setter
+    def domain_transport_plan(self, value: Any) -> None:
+        self._domain_transport_plan = value
 
 
 # ============================================================================

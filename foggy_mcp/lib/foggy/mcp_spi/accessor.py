@@ -9,6 +9,8 @@ from typing import Any, Dict, List, Optional
 
 from foggy.mcp_spi.enums import AccessMode
 from foggy.mcp_spi.semantic import (
+    DeniedColumn,
+    FieldAccessDef,
     SemanticMetadataRequest,
     SemanticMetadataResponse,
     SemanticQueryRequest,
@@ -84,9 +86,24 @@ def build_query_request(payload: Dict[str, Any]) -> SemanticQueryRequest:
     Payload keys must use Java camelCase names:
     columns, slice, groupBy, orderBy, start, limit, calculatedFields, etc.
     """
+    # --- v1.2 column governance ---
+    field_access_raw = payload.get("fieldAccess")
+    field_access = FieldAccessDef(**field_access_raw) if isinstance(field_access_raw, dict) else None
+    system_slice = payload.get("systemSlice")
+
+    # --- v1.3 physical column blacklist ---
+    denied_columns_raw = payload.get("deniedColumns")
+    denied_columns = None
+    if isinstance(denied_columns_raw, list):
+        denied_columns = [
+            DeniedColumn(**dc) if isinstance(dc, dict) else dc
+            for dc in denied_columns_raw
+        ]
+
     return SemanticQueryRequest(
         columns=payload.get("columns", []),
         slice=payload.get("slice", []),
+        having=payload.get("having", []),
         group_by=payload.get("groupBy", []),
         order_by=payload.get("orderBy", []),
         start=payload.get("start", 0),
@@ -95,11 +112,16 @@ def build_query_request(payload: Dict[str, Any]) -> SemanticQueryRequest:
         return_total=payload.get("returnTotal", False),
         distinct=payload.get("distinct", False),
         with_subtotals=payload.get("withSubtotals", False),
+        time_window=payload.get("timeWindow"),
+        pivot=payload.get("pivot"),
         hints=payload.get("hints"),
         cursor=payload.get("cursor"),
         stream=payload.get("stream"),
         caption_match_mode=payload.get("captionMatchMode", "EXACT"),
         mismatch_handle_strategy=payload.get("mismatchHandleStrategy", "ABORT"),
+        field_access=field_access,
+        system_slice=system_slice,
+        denied_columns=denied_columns,
     )
 
 

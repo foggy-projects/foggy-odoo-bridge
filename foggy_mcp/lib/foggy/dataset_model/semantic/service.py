@@ -4,15 +4,21 @@ This module provides the main service for executing semantic layer queries,
 integrating SqlQueryBuilder with table/query models.
 """
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 from datetime import datetime
+import os
 import time
 import re
 import logging
 
 from pydantic import BaseModel
 
-from foggy.dataset_model.impl.model import DbTableModelImpl, DbModelDimensionImpl, DbModelMeasureImpl
+from foggy.dataset_model.impl.model import (
+    DbTableModelImpl,
+    DbModelDimensionImpl,
+    DbModelMeasureImpl,
+    DimensionJoinDef,
+)
 from foggy.dataset_model.engine.query import SqlQueryBuilder
 from foggy.dataset_model.engine.formula import get_default_registry, SqlFormulaRegistry
 from foggy.dataset_model.engine.hierarchy import (
@@ -21,7 +27,9 @@ from foggy.dataset_model.engine.hierarchy import (
     get_default_hierarchy_registry,
 )
 from foggy.dataset_model.engine.join import JoinGraph, JoinEdge, JoinType
+from foggy.dataset_model.definitions.base import ColumnType
 from foggy.dataset_model.definitions.query_request import CalculatedFieldDef
+from foggy.dataset_model.semantic.formula_field_extractor import extract_formula_fields, resolve_base_column_references
 from foggy.mcp_spi import (
     SemanticServiceResolver,
     SemanticMetadataResponse,
@@ -32,10 +40,68 @@ from foggy.mcp_spi import (
     DebugInfo,
     QueryMode,
 )
+from foggy.mcp_spi.semantic import DeniedColumn, FieldAccessDef
+from foggy.dataset_model.semantic.field_validator import (
+    extract_field_dependencies,
+    validate_field_access,
+    filter_response_columns,
+    validate_query_fields,
+    _collect_model_schema_fields,
+)
+from foggy.dataset_model.semantic.case_insensitive_resolver import (
+    CaseInsensitiveFieldResolver,
+    CaseInsensitiveFieldAmbiguousError,
+    case_insensitive_field_resolve_enabled,
+    resolve_slice_fields,
+    resolve_order_by_fields,
+    resolve_group_by_fields,
+    resolve_columns,
+)
+from foggy.dataset_model.order_by import normalize_order_by_item
+from foggy.dataset_model.semantic.calc_field_sorter import (
+    sort_calc_fields_by_dependencies,
+    CircularCalcFieldError,
+)
+from foggy.dataset_model.semantic.fsscript_to_sql_visitor import (
+    render_with_ast,
+    AstCompileError,
+)
+from foggy.dataset_model.semantic.masking import apply_masking
+from foggy.dataset_model.semantic.time_window import (
+    RelativeDateParser,
+    TimeWindowDef,
+    TimeWindowExpander,
+    TimeWindowValidator,
+    collect_time_window_field_sets,
+)
+from foggy.dataset_model.semantic.physical_column_mapping import (
+    PhysicalColumnMapping,
+    build_physical_column_mapping,
+)
+from foggy.dataset_model.semantic.error_sanitizer import sanitize_engine_error
+from foggy.dataset_model.semantic.formula_compiler import (
+    CalculateQueryContext,
+    FormulaCompiler,
+)
+from foggy.dataset_model.semantic.formula_dialect import SqlDialect
+from foggy.dataset_model.semantic.formula_errors import FormulaError
+from foggy.dataset_model.semantic.inline_expression import (
+    find_matching_paren,
+    parse_column_with_alias,
+    parse_inline_aggregate,
+    skip_string_literal,
+    split_top_level_commas,
+)
 
 
 logger = logging.getLogger(__name__)
 
+
+class QueryBuildResultCteStage(BaseModel):
+    alias: str
+    sql: str
+    params: List[Any] = []
+    select_columns: Optional[List[str]] = None
 
 class QueryBuildResult(BaseModel):
     """Result of building a query.
@@ -47,6 +113,7 @@ class QueryBuildResult(BaseModel):
     params: List[Any] = []
     warnings: List[str] = []
     columns: List[Dict[str, Any]] = []
+    cte_stages: List[QueryBuildResultCteStage] = []
 
 
 class SemanticQueryService(SemanticServiceResolver):
@@ -63,6 +130,10 @@ class SemanticQueryService(SemanticServiceResolver):
         >>> service.register_model(my_table_model)
         >>> response = service.query_model("sales_qm", request)
     """
+    _RATIO_TO_TOTAL_SUGAR_RE = re.compile(
+        r"^\s*(?:ratio_to_total|ratioToTotal)\s*\(\s*([A-Za-z_][\w$]*)\s*\)\s*$",
+        re.IGNORECASE,
+    )
 
     def __init__(
         self,
@@ -72,6 +143,9 @@ class SemanticQueryService(SemanticServiceResolver):
         cache_ttl_seconds: int = 300,
         executor=None,
         dialect=None,
+        use_ast_expression_compiler: bool = False,
+        auto_lift_aggregate_slice_to_having: Optional[bool] = None,
+        auto_case_insensitive_field_resolve: Optional[bool] = None,
     ):
         """Initialize the semantic query service.
 
@@ -82,8 +156,31 @@ class SemanticQueryService(SemanticServiceResolver):
             cache_ttl_seconds: Cache TTL in seconds
             executor: Optional database executor for query execution
             dialect: Optional database dialect for identifier quoting.
-                     If None, uses ANSI double-quote (compatible with
-                     PostgreSQL, SQLite, and most databases).
+                     If None and a known executor is provided, the service
+                     infers the matching SQL dialect. Otherwise it uses ANSI
+                     double-quote (compatible with PostgreSQL, SQLite, and
+                     most databases).
+            use_ast_expression_compiler: v1.5 Phase 3 opt-in.  When True,
+                     computed-field / slice / orderBy / having expressions
+                     are compiled via the fsscript AST visitor first,
+                     falling back to the character-level tokenizer on
+                     parse error.  Adds support for fsscript method
+                     calls (``s.startsWith('x')``), ternary ``a ? b : c``,
+                     null coalescing ``a ?? b``, etc.  Default ``False``
+                     preserves pre-v1.5-Phase-3 behaviour byte-for-byte.
+            auto_lift_aggregate_slice_to_having: when True, pure aggregate
+                     measure conditions in ``slice`` are treated as
+                     post-aggregate filters and emitted as HAVING. Defaults
+                     to True; pass False or set
+                     ``FOGGY_DATASET_AUTO_LIFT_AGGREGATE_SLICE_TO_HAVING=false``
+                     to preserve the previous rejection.
+            auto_case_insensitive_field_resolve: when True, field names
+                     that differ only by case from a canonical schema field
+                     are resolved to the canonical name before validation,
+                     permission checks, and SQL generation.  Defaults to
+                     True; pass False or set
+                     ``FOGGY_DATASET_CASE_INSENSITIVE_FIELD_RESOLVE=false``
+                     to preserve exact-match-only behaviour.
         """
         self._models: Dict[str, DbTableModelImpl] = {}
         self._default_limit = default_limit
@@ -93,9 +190,35 @@ class SemanticQueryService(SemanticServiceResolver):
         self._cache: Dict[str, Tuple[SemanticQueryResponse, float]] = {}
         self._executor = executor
         self._executor_manager = None  # Optional[ExecutorManager] for multi-datasource routing
-        self._dialect = dialect
+        self._dialect = dialect or self._infer_dialect_from_executor(executor)
+        self._use_ast_expression_compiler = use_ast_expression_compiler
+        self._auto_lift_aggregate_slice_to_having = (
+            self._resolve_auto_lift_aggregate_slice_to_having_default()
+            if auto_lift_aggregate_slice_to_having is None
+            else auto_lift_aggregate_slice_to_having
+        )
+        self._auto_case_insensitive_field_resolve = (
+            case_insensitive_field_resolve_enabled(auto_case_insensitive_field_resolve)
+        )
         self._formula_registry: SqlFormulaRegistry = get_default_registry()
         self._hierarchy_registry = get_default_hierarchy_registry()
+        import threading
+        self._sync_loop_lock = threading.RLock()
+        # v1.3: physical column mapping cache (model_name → PhysicalColumnMapping)
+        self._mapping_cache: Dict[str, PhysicalColumnMapping] = {}
+        # v1.4 M4 Step 4.1: FormulaCompiler lazy-init cache for
+        # calculated-field expression compilation. Built once per service
+        # instance based on ``self._dialect``; falls back to mysql when
+        # dialect is None (legacy default matches prior ANSI double-quote
+        # identifier behaviour).
+        self._formula_compiler: Optional[FormulaCompiler] = None
+
+    @staticmethod
+    def _resolve_auto_lift_aggregate_slice_to_having_default() -> bool:
+        value = os.getenv("FOGGY_DATASET_AUTO_LIFT_AGGREGATE_SLICE_TO_HAVING")
+        if value is None or value.strip() == "":
+            return True
+        return value.strip().lower() not in {"0", "false", "no", "off"}
 
     def _qi(self, identifier: str) -> str:
         """Quote an SQL identifier using the configured dialect.
@@ -107,6 +230,175 @@ class SemanticQueryService(SemanticServiceResolver):
         # ANSI SQL standard: double-quote for identifiers
         escaped = identifier.replace('"', '""')
         return f'"{escaped}"'
+
+    @staticmethod
+    def _infer_dialect_from_executor(executor):
+        if executor is None:
+            return None
+
+        executor_name = executor.__class__.__name__
+        if executor_name == "MySQLExecutor":
+            from foggy.dataset.dialects.mysql import MySqlDialect
+
+            return MySqlDialect()
+        if executor_name == "PostgreSQLExecutor":
+            from foggy.dataset.dialects.postgres import PostgresDialect
+
+            return PostgresDialect()
+        if executor_name == "SQLiteExecutor":
+            from foggy.dataset.dialects.sqlite import SqliteDialect
+
+            return SqliteDialect()
+        if executor_name == "SQLServerExecutor":
+            from foggy.dataset.dialects.sqlserver import SqlServerDialect
+
+            return SqlServerDialect()
+        return None
+
+    # v1.4 M4 Step 4.1 helpers ------------------------------------------------
+
+    @staticmethod
+    def _formula_legacy_passthrough() -> bool:
+        """Read the ``FOGGY_FORMULA_LEGACY_PASSTHROUGH`` env flag.
+
+        When ``true``, ``_build_calculated_field_sql`` falls back to the
+        pre-v1.4 character-level string substitution path (no AST gate).
+        Only intended for staged rollout / hotfix rollback; defaults to
+        ``false``.
+        """
+        return os.getenv("FOGGY_FORMULA_LEGACY_PASSTHROUGH", "").strip().lower() == "true"
+
+    def _get_formula_compiler(self) -> FormulaCompiler:
+        """Return the cached FormulaCompiler, building it on first use.
+
+        Dialect resolution order:
+          1. ``self._dialect.name()`` when the service was wired with an
+             ``FDialect`` (mysql / postgresql / sqlserver / sqlite).
+          2. Fallback ``mysql`` — matches the historical behaviour of
+             ``_resolve_expression_fields`` which emitted MySQL-ish
+             arithmetic SQL regardless of the concrete engine.
+        """
+        if self._formula_compiler is not None:
+            return self._formula_compiler
+        dialect_name = self._dialect_name_or_default("mysql")
+        try:
+            sql_dialect = SqlDialect.of(dialect_name)
+        except ValueError:
+            # Unknown dialect name (e.g. legacy fdialect sub-type) — fall
+            # back to mysql to preserve the previous behaviour.
+            sql_dialect = SqlDialect.of("mysql")
+        self._formula_compiler = FormulaCompiler(sql_dialect)
+        return self._formula_compiler
+
+    def _build_calculate_query_context(
+        self,
+        request: SemanticQueryRequest,
+        *,
+        time_window_post_calculated_fields: bool = False,
+    ) -> CalculateQueryContext:
+        return CalculateQueryContext(
+            group_by_fields=tuple(
+                field
+                for field in (
+                    self._extract_request_field_name(item)
+                    for item in (request.group_by or [])
+                )
+                if field
+            ),
+            system_slice_fields=frozenset(
+                self._collect_condition_fields(request.system_slice or [])
+            ),
+            supports_grouped_aggregate_window=self._calculate_window_supported(),
+            time_window_post_calculated_fields=time_window_post_calculated_fields,
+        )
+
+    def _calculate_window_supported(self) -> bool:
+        if self._dialect and hasattr(self._dialect, "supports_grouped_aggregate_window"):
+            return self._dialect.supports_grouped_aggregate_window
+        dialect_name = self._dialect_name_or_default("")
+        return bool(dialect_name) and dialect_name.lower() != "mysql"
+
+    def _dialect_name_or_default(self, default: str) -> str:
+        if self._dialect is None or not hasattr(self._dialect, "name"):
+            return default
+        try:
+            name_attr = getattr(self._dialect, "name")
+            value = name_attr() if callable(name_attr) else name_attr
+            return str(value) if value else default
+        except Exception:
+            return default
+
+    def _field_formula_dialect_name(self) -> Optional[str]:
+        return self._dialect_name_or_default("") or None
+
+    @classmethod
+    def _collect_condition_fields(cls, items: Any) -> set[str]:
+        fields: set[str] = set()
+        if items is None:
+            return fields
+        if isinstance(items, dict):
+            field_name = (
+                items.get("field")
+                or items.get("fieldName")
+                or items.get("column")
+            )
+            if isinstance(field_name, str):
+                fields.add(field_name)
+            for key in ("conditions", "children", "filters", "$and", "$or"):
+                nested = items.get(key)
+                if nested:
+                    fields.update(cls._collect_condition_fields(nested))
+            return fields
+        if isinstance(items, list):
+            for item in items:
+                fields.update(cls._collect_condition_fields(item))
+            return fields
+        field_name = getattr(items, "field", None) or getattr(items, "field_name", None)
+        if isinstance(field_name, str):
+            fields.add(field_name)
+        return fields
+
+    @staticmethod
+    def _extract_request_field_name(item: Any) -> Optional[str]:
+        if isinstance(item, str):
+            return item
+        if isinstance(item, dict):
+            value = item.get("field") or item.get("fieldName") or item.get("column")
+            return value if isinstance(value, str) else None
+        value = getattr(item, "field", None) or getattr(item, "field_name", None)
+        return value if isinstance(value, str) else None
+
+    @staticmethod
+    def _normalize_order_by_item(item: Any) -> Tuple[Optional[str], str]:
+        """Return ``(field, direction)`` for supported orderBy shapes.
+
+        Public DSL accepts both Java-style objects
+        ``{"field": "amount", "dir": "desc"}`` and compact strings
+        ``"amount"`` / ``"-amount"``.  Keep the normalization local to the
+        semantic layer so callers do not need to pre-clean LLM output.
+        """
+        try:
+            spec = normalize_order_by_item(item)
+        except TypeError:
+            return None, "ASC"
+        if not spec.field:
+            return None, "ASC"
+        return spec.field, spec.direction.upper()
+
+    def get_physical_column_mapping(self, model_name: str) -> Optional[PhysicalColumnMapping]:
+        """Get or lazily build the physical column mapping for a model.
+
+        The mapping is cached per model name and invalidated when models
+        are registered/unregistered.
+        """
+        if model_name in self._mapping_cache:
+            return self._mapping_cache[model_name]
+        model = self.get_model(model_name)
+        if model is None:
+            return None
+        mapping = build_physical_column_mapping(model)
+        self._mapping_cache[model_name] = mapping
+        return mapping
 
     def register_model(self, model: DbTableModelImpl, namespace: Optional[str] = None) -> None:
         """Register a table model with the service.
@@ -127,11 +419,14 @@ class SemanticQueryService(SemanticServiceResolver):
             model.name = key
 
         self._models[key] = model
+        # Invalidate mapping cache for this model
+        self._mapping_cache.pop(key, None)
 
         # Also register bare name as fallback (don't overwrite existing)
         bare_name = key.split(":", 1)[1] if ":" in key else key
         if bare_name != key and bare_name not in self._models:
             self._models[bare_name] = model
+            self._mapping_cache.pop(bare_name, None)
 
         logger.info(f"Registered model: {key}")
 
@@ -176,9 +471,230 @@ class SemanticQueryService(SemanticServiceResolver):
         return list(self._models.keys())
 
     def invalidate_model_cache(self) -> None:
-        """Invalidate all cached query results."""
+        """Invalidate all cached query results and physical column mappings."""
         self._cache.clear()
+        self._mapping_cache.clear()
         logger.debug("Cache invalidated")
+
+    # ==================== Case-Insensitive Field Resolution ====================
+
+    def _resolve_request_fields_case_insensitive(
+        self,
+        table_model: DbTableModelImpl,
+        request: SemanticQueryRequest,
+    ):
+        """Resolve field names in *request* to their canonical casing.
+
+        Builds a :class:`CaseInsensitiveFieldResolver` from the model's
+        schema fields (dimensions + measures + calculated-field names +
+        predefined formula names) and walks every structured field
+        reference in the request.
+
+        Returns either:
+        * A **new** ``SemanticQueryRequest`` with canonical field names, or
+        * A ``SemanticQueryResponse`` error when ambiguity is detected.
+        """
+        # Collect canonical field names
+        schema_fields = _collect_model_schema_fields(table_model)
+
+        # Also include calculated-field names (they may be referenced in
+        # orderBy / having / slice).
+        calc_names = set()
+        if hasattr(request, "calculated_fields") and request.calculated_fields:
+            for cf in request.calculated_fields:
+                name = cf.get("name") if isinstance(cf, dict) else getattr(cf, "name", None)
+                if name:
+                    calc_names.add(name)
+        all_fields = schema_fields | calc_names
+
+        resolver = CaseInsensitiveFieldResolver(all_fields)
+
+        try:
+            new_columns = resolve_columns(
+                getattr(request, "columns", None), resolver,
+            )
+            new_slice = resolve_slice_fields(
+                getattr(request, "slice", None), resolver,
+            )
+            new_having = resolve_slice_fields(
+                getattr(request, "having", None), resolver,
+            )
+            new_order_by = resolve_order_by_fields(
+                getattr(request, "order_by", None), resolver,
+            )
+            new_group_by = resolve_group_by_fields(
+                getattr(request, "group_by", None), resolver,
+            )
+        except CaseInsensitiveFieldAmbiguousError as e:
+            return SemanticQueryResponse.from_error(
+                str(e),
+                error_detail={
+                    "error_code": e.error_code,
+                    "field": e.field,
+                    "candidates": e.candidates,
+                },
+            )
+
+        # Build an updated request (SemanticQueryRequest is a Pydantic model)
+        update_kwargs = {}
+        if new_columns is not None:
+            update_kwargs["columns"] = new_columns
+        if new_slice is not None:
+            update_kwargs["slice"] = new_slice
+        if new_having is not None:
+            update_kwargs["having"] = new_having
+        if new_order_by is not None:
+            update_kwargs["order_by"] = new_order_by
+        if new_group_by is not None:
+            update_kwargs["group_by"] = new_group_by
+
+        if update_kwargs:
+            try:
+                request = request.model_copy(update=update_kwargs)
+            except Exception:
+                # Fallback for older Pydantic or non-Pydantic request objects
+                for k, v in update_kwargs.items():
+                    if hasattr(request, k):
+                        setattr(request, k, v)
+
+        return request
+
+    # ==================== Governance Helpers ====================
+
+    def _apply_query_governance(
+        self,
+        model_name: str,
+        request: SemanticQueryRequest,
+    ) -> Tuple[Optional[SemanticQueryResponse], SemanticQueryRequest]:
+        """Validate field governance and merge system_slice.
+
+        Returns ``(error_response, updated_request)``.  When ``error_response``
+        is not ``None``, the caller should return it immediately.  Otherwise
+        the returned ``updated_request`` has ``system_slice`` merged into
+        ``slice`` and is ready for query building.
+        """
+        field_access = request.field_access
+        denied_qm_fields = None
+        if request.denied_columns:
+            mapping = self.get_physical_column_mapping(model_name)
+            if mapping:
+                denied_qm_fields = mapping.to_denied_qm_fields(request.denied_columns)
+
+        has_whitelist = field_access is not None and bool(field_access.visible)
+        has_blacklist = bool(denied_qm_fields)
+        if has_whitelist or has_blacklist:
+            validation = validate_field_access(
+                columns=request.columns,
+                slice_items=request.slice,
+                having_items=request.having,
+                order_by=request.order_by,
+                calculated_fields=request.calculated_fields,
+                field_access=field_access,
+                denied_qm_fields=denied_qm_fields,
+            )
+            if not validation.valid:
+                return SemanticQueryResponse.from_error(validation.error_message), request
+
+        if request.system_slice:
+            merged_slice = list(request.slice) + list(request.system_slice)
+            request = request.model_copy(update={"slice": merged_slice})
+
+        return None, request
+
+    def _sanitize_error(
+        self,
+        model_name: Optional[str],
+        raw_error: Optional[str],
+    ) -> Optional[str]:
+        """Apply :func:`sanitize_engine_error` with the model's physical
+        column mapping when available.
+
+        Safe to call with ``None`` / empty error — returns as-is.  Used to
+        make sure any error text reaching callers is in QM vocabulary and
+        does not leak physical column or alias names (BUG-007 v1.3).
+        """
+        if not raw_error:
+            return raw_error
+        mapping: Optional[PhysicalColumnMapping] = None
+        if model_name:
+            try:
+                mapping = self.get_physical_column_mapping(model_name)
+            except Exception:  # pragma: no cover — mapping build is best-effort
+                mapping = None
+        return sanitize_engine_error(
+            raw_error, model_name=model_name, mapping=mapping,
+        )
+
+    def _sanitize_response_error(
+        self,
+        model_name: Optional[str],
+        response: SemanticQueryResponse,
+    ) -> SemanticQueryResponse:
+        """In-place rewrite of ``response.error`` via :meth:`_sanitize_error`.
+
+        Returns the same response (for call-site convenience)."""
+        if response is not None and response.error:
+            response.error = self._sanitize_error(model_name, response.error)
+        return response
+
+    def _resolve_effective_visible(
+        self,
+        model_names: List[str],
+        visible_fields: Optional[List[str]],
+        denied_columns: Optional[List['DeniedColumn']],
+    ) -> Optional[Dict[str, set]]:
+        """Compute *per-model* effective visible QM fields.
+
+        v1.6 F-3 fix: previous implementation merged denied QM fields across
+        models into a single flat set, losing model attribution. When two
+        models shared a QM field name (e.g. both expose ``name`` but one maps
+        to ``sale_order.name`` and the other to ``res_partner.name``), denying
+        one model's physical column caused the shared QM field to disappear
+        from the OTHER model too.
+
+        The fix returns a ``Dict[model_name, Set[qm_field]]`` so callers can
+        apply per-model filtering. Absent model keys signal "this model has
+        no mapping; caller should treat it as ungoverned".
+
+        Returns
+        -------
+        None
+            When no governance applies (both ``visible_fields`` and
+            ``denied_columns`` absent).
+        Dict[str, Set[str]]
+            When governance applies. Keyed by model name. Missing keys indicate
+            the model has no ``PhysicalColumnMapping`` — downstream callers
+            should fall back to "no trimming" for those models.
+        """
+        if visible_fields is None and not denied_columns:
+            return None
+
+        visible_base: Optional[set] = (
+            set(visible_fields) if visible_fields is not None else None
+        )
+
+        per_model: Dict[str, set] = {}
+        for name in model_names:
+            mapping = self.get_physical_column_mapping(name)
+            if mapping is None:
+                # No mapping → ungoverned; caller treats as "no trimming".
+                # But preserve the legacy behaviour when ONLY visible_fields
+                # is set: whitelists apply globally, so attach it.
+                if visible_base is not None:
+                    per_model[name] = set(visible_base)
+                continue
+
+            model_all_qm = mapping.get_all_qm_field_names()
+            model_denied = (
+                mapping.to_denied_qm_fields(denied_columns) if denied_columns else set()
+            )
+
+            if visible_base is not None:
+                per_model[name] = set(visible_base) - model_denied
+            else:
+                per_model[name] = model_all_qm - model_denied
+
+        return per_model
 
     # ==================== SemanticServiceResolver Implementation ====================
 
@@ -205,6 +721,118 @@ class SemanticQueryService(SemanticServiceResolver):
         resp.warnings = []
         return resp
 
+    def _inject_predefined_calculated_fields(
+        self,
+        model: DbTableModelImpl,
+        request: SemanticQueryRequest,
+    ) -> None:
+        """Inject predefined calculated fields from model into request."""
+        predefined = getattr(model, "predefined_calculated_fields", None)
+        if not predefined:
+            return
+
+        predefined_names = {calc["name"] for calc in predefined}
+
+        # Remove colliding user calc fields
+        if request.calculated_fields:
+            replaced = []
+            new_calcs = []
+            for f in request.calculated_fields:
+                name = f.name if isinstance(f, CalculatedFieldDef) else f.get("name")
+                if name in predefined_names:
+                    replaced.append(name)
+                else:
+                    new_calcs.append(f)
+            if replaced:
+                logger.warning(f"Ignored custom calculated fields colliding with predefined QM formulas: {replaced}")
+                request.calculated_fields = new_calcs
+
+        existing_names = set()
+        if request.calculated_fields:
+            for f in request.calculated_fields:
+                name = f.name if isinstance(f, CalculatedFieldDef) else f.get("name")
+                existing_names.add(name)
+
+        predefined_by_name = {
+            calc.get("name"): calc
+            for calc in predefined
+            if calc.get("name")
+        }
+
+        referenced_columns = set()
+        rewritten_columns = []
+        derived_calcs = []
+        for column in request.columns or []:
+            if not isinstance(column, str):
+                rewritten_columns.append(column)
+                continue
+
+            inline_agg = parse_inline_aggregate(column)
+            if inline_agg and inline_agg.inner_expression in predefined_by_name:
+                source_calc = dict(predefined_by_name[inline_agg.inner_expression])
+                source_expr = str(source_calc.get("expression") or "")
+                alias = inline_agg.alias
+                source_calc["name"] = alias
+                source_calc["alias"] = alias
+                if parse_inline_aggregate(source_expr) is None:
+                    source_calc["agg"] = inline_agg.aggregation
+                derived_calcs.append(source_calc)
+                rewritten_columns.append(alias)
+                referenced_columns.add(alias)
+                continue
+
+            parsed = parse_column_with_alias(column)
+            if parsed.user_alias and parsed.base_expr in predefined_by_name:
+                source_calc = dict(predefined_by_name[parsed.base_expr])
+                alias = parsed.user_alias
+                source_calc["name"] = alias
+                source_calc["alias"] = alias
+                derived_calcs.append(source_calc)
+                rewritten_columns.append(alias)
+                referenced_columns.add(alias)
+                continue
+
+            rewritten_columns.append(column)
+            if not isinstance(column, str):
+                continue
+            referenced_columns.add(column)
+            referenced_columns.add(parsed.base_expr)
+            referenced_columns.update(extract_field_dependencies(parsed.base_expr))
+        if derived_calcs:
+            request.columns = rewritten_columns
+
+        for condition in request.having or []:
+            self._collect_condition_field_refs(condition, referenced_columns)
+        for condition in request.slice or []:
+            self._collect_condition_field_refs(condition, referenced_columns)
+
+        to_inject = []
+        for calc in derived_calcs:
+            calc_name = calc.get("name")
+            if calc_name and calc_name not in existing_names:
+                to_inject.append(CalculatedFieldDef(**calc))
+                existing_names.add(calc_name)
+        for calc in predefined:
+            if calc["name"] in referenced_columns and calc["name"] not in existing_names:
+                to_inject.append(CalculatedFieldDef(**calc))
+
+        if to_inject:
+            if request.calculated_fields is None:
+                request.calculated_fields = []
+            request.calculated_fields = to_inject + request.calculated_fields
+
+    def _collect_condition_field_refs(self, item: Any, target: set) -> None:
+        if not isinstance(item, dict):
+            return
+        field = item.get("field") or item.get("column")
+        if isinstance(field, str) and field:
+            target.add(field)
+        for key in ("conditions", "children", "filters", "$or", "$and", "or", "and"):
+            nested = item.get(key)
+            if isinstance(nested, list):
+                for child in nested:
+                    self._collect_condition_field_refs(child, target)
+
     def query_model(
         self,
         model: str,
@@ -219,6 +847,47 @@ class SemanticQueryService(SemanticServiceResolver):
         if not table_model:
             return SemanticQueryResponse.from_error(f"Model not found: {model}")
 
+        # --- v1.4 Pivot: Validate and Translate Pivot Request ---
+        is_pivot = False
+        _pivot_parent_share_metrics = []
+        pivot_request = getattr(request, "pivot", None)
+        if pivot_request:
+            is_pivot = True
+
+            from foggy.dataset_model.semantic.pivot.cascade_detector import is_rows_two_level_cascade
+            if is_rows_two_level_cascade(pivot_request):
+                from foggy.dataset_model.semantic.pivot.cascade_staged_sql import execute_cascade_staged_sql
+                return execute_cascade_staged_sql(self, model, request, context)
+
+            from foggy.dataset_model.semantic.pivot.executor import validate_and_translate_pivot
+            try:
+                request, _pivot_want_grand_total, _pivot_parent_share_metrics = validate_and_translate_pivot(request)
+            except NotImplementedError as e:
+                return SemanticQueryResponse.from_error(str(e))
+
+        # --- Case-insensitive canonical field resolution ---
+        if self._auto_case_insensitive_field_resolve:
+            ci_result = self._resolve_request_fields_case_insensitive(
+                table_model, request,
+            )
+            if isinstance(ci_result, SemanticQueryResponse):
+                return ci_result  # ambiguity error
+            request = ci_result
+
+        # --- v1.2/v1.3: governance check + system_slice merge ---
+        self._inject_predefined_calculated_fields(table_model, request)
+
+        governance_error, request = self._apply_query_governance(model, request)
+        if governance_error is not None:
+            return governance_error
+
+        invalid_field = validate_query_fields(table_model, request)
+        if invalid_field is not None:
+            return SemanticQueryResponse.from_error(
+                invalid_field.message,
+                error_detail=invalid_field.to_public_dict(),
+            )
+
         # Build query
         try:
             build_result = self._build_query(table_model, request)
@@ -232,6 +901,7 @@ class SemanticQueryService(SemanticServiceResolver):
                 data=[],
                 columns_info=build_result.columns,
                 sql=build_result.sql,
+                params=list(build_result.params) or None,
                 warnings=build_result.warnings,
                 duration_ms=(time.time() - start_time) * 1000,
             )
@@ -245,15 +915,110 @@ class SemanticQueryService(SemanticServiceResolver):
                 return cached_response
 
         # Execute query
+        effective_limit = min(request.limit or self._default_limit, self._max_limit)
         try:
-            response = self._execute_query(build_result, table_model)
+            response = self._execute_query(
+                build_result, table_model,
+                start=request.start, limit=effective_limit,
+            )
         except Exception as e:
             logger.exception(f"Failed to execute query for model {model}")
-            return SemanticQueryResponse.from_legacy(
-                data=[],
-                sql=build_result.sql,
-                error=f"Query execution failed: {str(e)}",
-                warnings=build_result.warnings,
+            return self._sanitize_response_error(
+                model,
+                SemanticQueryResponse.from_legacy(
+                    data=[],
+                    sql=build_result.sql,
+                    error=f"Query execution failed: {str(e)}",
+                    warnings=build_result.warnings,
+                ),
+            )
+
+        # Sanitize any executor-surfaced error (e.g. PostgreSQL column
+        # not-exist + physical HINT) before the response leaves the engine.
+        self._sanitize_response_error(model, response)
+
+        # --- v1.4 Pivot: Process Pivot Result in Memory ---
+        if is_pivot:
+            from foggy.dataset_model.semantic.pivot.memory_cube import MemoryCubeProcessor
+            from foggy.dataset_model.semantic.pivot.grid_shaper import GridShaper
+
+            key_map = {}
+            for col in build_result.columns:
+                field_name = col.get("fieldName")
+                name = col.get("name")
+                if field_name:
+                    key_map[field_name] = name or field_name
+                if name:
+                    key_map[name] = name
+
+            processor = MemoryCubeProcessor(response.items, pivot_request, key_map)
+            response.items = processor.process()
+
+            # --- grandTotal post-processing for ordinary (non-cascade) pivot ---
+            if _pivot_want_grand_total and response.items:
+                from foggy.dataset_model.semantic.pivot.cascade_totals import _build_grand_totals
+                row_fields = [
+                    _f if isinstance(_f, str) else _f.field
+                    for _f in (pivot_request.rows or [])
+                ]
+                col_fields = [
+                    _f if isinstance(_f, str) else _f.field
+                    for _f in (pivot_request.columns or [])
+                ]
+                metric_names = [
+                    _m if isinstance(_m, str) else (_m.of if hasattr(_m, 'of') else _m.name)
+                    for _m in (pivot_request.metrics or [])
+                ]
+                # Resolve through key_map (QM field name -> display column name)
+                row_keys = [key_map.get(f, f) for f in row_fields]
+                col_keys = [key_map.get(f, f) for f in col_fields]
+                metric_keys = [key_map.get(m, m) for m in metric_names]
+                grand_rows = _build_grand_totals(response.items, row_keys, col_keys, metric_keys)
+                response.items = response.items + grand_rows
+
+            # --- Phase 2.8: parentShare post-processing ---
+            if _pivot_parent_share_metrics:
+                from foggy.dataset_model.semantic.pivot.parent_share import apply as _apply_parent_share
+                _ps_row_fields = [
+                    _f if isinstance(_f, str) else _f.field
+                    for _f in (pivot_request.rows or [])
+                ]
+                _ps_col_fields = [
+                    _f if isinstance(_f, str) else _f.field
+                    for _f in (pivot_request.columns or [])
+                ]
+                try:
+                    response.items = _apply_parent_share(
+                        response.items, pivot_request,
+                        _ps_row_fields, _ps_col_fields, key_map,
+                    )
+                except (ValueError, IndexError) as e:
+                    return SemanticQueryResponse.from_error(
+                        f"parentShare calculation failed: {e}"
+                    )
+
+            if getattr(pivot_request, "output_format", "flat") == "grid":
+                shaper = GridShaper(response.items, pivot_request, key_map)
+                response.items = [shaper.shape()]
+
+        # --- v1.2 column governance: post-execution filtering + masking ---
+        field_access = request.field_access
+        display_to_qm: Optional[Dict[str, str]] = None
+        if field_access is not None and (field_access.visible or field_access.masking):
+            display_to_qm = {}
+            for col in build_result.columns:
+                disp = col.get("name", "")
+                qm = col.get("fieldName", "")
+                if disp and qm:
+                    display_to_qm[disp] = qm
+
+        if field_access is not None and field_access.visible:
+            response.items = filter_response_columns(
+                response.items, field_access, display_to_qm=display_to_qm,
+            )
+        if field_access is not None and field_access.masking:
+            apply_masking(
+                response.items, field_access, display_to_qm=display_to_qm,
             )
 
         # Add debug info with timing and SQL
@@ -261,7 +1026,11 @@ class SemanticQueryService(SemanticServiceResolver):
         # DebugInfo already imported at module level from foggy.mcp_spi
         response.debug = DebugInfo(
             duration_ms=duration_ms,
-            extra={"sql": build_result.sql, "from_cache": False},
+            extra={
+                "sql": build_result.sql,
+                "params": list(build_result.params),
+                "from_cache": False,
+            },
         )
         if build_result.warnings:
             response.warnings = build_result.warnings
@@ -273,6 +1042,92 @@ class SemanticQueryService(SemanticServiceResolver):
         return response
 
     # ==================== Query Building ====================
+
+    def build_query_with_governance(
+        self,
+        model_name: str,
+        request: SemanticQueryRequest,
+    ) -> QueryBuildResult:
+        """Build a SQL query end-to-end: governance → field validation → build.
+
+        Public entry point intended for callers that need a parameterised SQL
+        fragment WITHOUT executing (e.g. Compose Query's M6 SQL compiler).
+        Mirrors the governance-then-build sequence that ``query_model``
+        runs internally, but surfaces the result as a ``QueryBuildResult``
+        instead of a ``SemanticQueryResponse`` and raises on governance
+        rejection so callers keep a clean exception chain.
+
+        Steps:
+          1. ``get_model(model_name)`` — resolve the TableModel
+          2. ``_apply_query_governance`` — column whitelist, denied column
+             → denied QM field translation, system_slice merge
+          3. ``validate_query_fields`` — structural field existence
+          4. ``_build_query`` — SQL + params generation
+
+        Parameters
+        ----------
+        model_name:
+            QM name registered with this service.
+        request:
+            Bridge-level query request, typically constructed by the
+            caller with ``field_access`` / ``system_slice`` /
+            ``denied_columns`` already populated from a
+            ``ModelBinding``.
+
+        Returns
+        -------
+        QueryBuildResult
+            ``sql`` / ``params`` / ``warnings`` / ``columns``. Never
+            ``None`` — the call either succeeds or raises.
+
+        Raises
+        ------
+        ValueError
+            When the QM is not registered, governance rejects the
+            request, or structural field validation fails. The caller
+            (e.g. M6 compiler) wraps this into its own error-code
+            vocabulary.
+        Exception
+            Propagates ``_build_query`` raises untouched so callers can
+            preserve the ``__cause__`` chain.
+        """
+        table_model = self.get_model(model_name)
+        if table_model is None:
+            raise ValueError(f"Model not found: {model_name}")
+
+        is_pivot = False
+        pivot_request = getattr(request, "pivot", None)
+        if pivot_request:
+            is_pivot = True
+            from foggy.dataset_model.semantic.pivot.executor import validate_and_translate_pivot
+            request, _, _ps_metrics = validate_and_translate_pivot(request)
+
+        if self._auto_case_insensitive_field_resolve:
+            ci_result = self._resolve_request_fields_case_insensitive(
+                table_model, request,
+            )
+            if isinstance(ci_result, SemanticQueryResponse):
+                raise ValueError(
+                    ci_result.error
+                    or f"Case-insensitive field resolution failed for model '{model_name}'"
+                )
+            request = ci_result
+
+        self._inject_predefined_calculated_fields(table_model, request)
+        governance_error, request = self._apply_query_governance(model_name, request)
+        if governance_error is not None:
+            raise ValueError(
+                governance_error.error
+                or f"Governance rejected request for model '{model_name}'"
+            )
+
+        invalid_field = validate_query_fields(table_model, request)
+        if invalid_field is not None:
+            raise ValueError(
+                getattr(invalid_field, "message", str(invalid_field))
+            )
+
+        return self._build_query(table_model, request)
 
     def _build_query(
         self,
@@ -288,20 +1143,25 @@ class SemanticQueryService(SemanticServiceResolver):
         """
         from foggy.dataset_model.impl.model import DimensionJoinDef
 
+        model = self._with_unique_dimension_join_aliases(model, request)
+
         warnings: List[str] = []
         columns_info: List[Dict[str, Any]] = []
+
+        if request.time_window:
+            return self._build_time_window_query(model, request, warnings)
 
         builder = SqlQueryBuilder()
 
         # 1. FROM clause
-        table_name = model.source_table
-        if model.source_schema:
-            table_name = f"{model.source_schema}.{model.source_table}"
-        builder.from_table(table_name, alias="t")
+        table_name = model.get_table_expr_for_model(model.name)
+        builder.from_table(table_name, alias=model.get_table_alias_for_model(model.name))
 
         # Build JoinGraph from model's dimension_joins (supports multi-hop in future)
         join_graph = JoinGraph(root="t")
         for dj in model.dimension_joins:
+            if not dj.table_name:
+                continue
             ta = dj.get_alias()
             join_graph.add_edge(
                 from_alias="t", to_alias=ta,
@@ -313,14 +1173,84 @@ class SemanticQueryService(SemanticServiceResolver):
 
         # Track JOINs to add (deduplicated by dimension name)
         joined_dims: Dict[str, DimensionJoinDef] = {}
+        explicit_joins_added: set[tuple[str, str, str]] = set()
 
         def ensure_join(join_def: DimensionJoinDef):
             """Add LEFT JOIN if not already added."""
+            if not join_def.table_name:
+                return
             if join_def.name not in joined_dims:
+                ensure_explicit_joins_for_field(join_def.name)
                 joined_dims[join_def.name] = join_def
                 ta = join_def.get_alias()
-                on_cond = f"t.{join_def.foreign_key} = {ta}.{join_def.primary_key}"
+                join_source_alias, join_source_column = self._resolve_dimension_join_source(
+                    model,
+                    join_def,
+                    ensure_join=ensure_join,
+                )
+                on_cond = (
+                    f"{join_source_alias}.{join_source_column} = "
+                    f"{ta}.{join_def.primary_key}"
+                )
                 builder.left_join(join_def.table_name, alias=ta, on_condition=on_cond)
+
+        def ensure_explicit_joins_for_field(field_name: str) -> None:
+            field_model_name = model.get_field_model_name(field_name)
+            if field_model_name == model.name:
+                return
+            for explicit_join in model.explicit_joins:
+                if explicit_join.right_model != field_model_name:
+                    continue
+                key = (
+                    explicit_join.join_type,
+                    explicit_join.left_model,
+                    explicit_join.right_model,
+                )
+                if key in explicit_joins_added:
+                    continue
+                on_clauses: List[str] = []
+                for condition in explicit_join.conditions:
+                    left_resolved = model.resolve_field_for_model(
+                        condition.left_field,
+                        condition.left_model,
+                        dialect_name=self._field_formula_dialect_name(),
+                    )
+                    right_resolved = model.resolve_field_for_model(
+                        condition.right_field,
+                        condition.right_model,
+                        dialect_name=self._field_formula_dialect_name(),
+                    )
+                    if left_resolved is None or right_resolved is None:
+                        raise ValueError(
+                            f"Failed to resolve explicit join condition "
+                            f"{condition.left_field} = {condition.right_field}"
+                        )
+                    on_clauses.append(
+                        f"{left_resolved['sql_expr']} = {right_resolved['sql_expr']}"
+                    )
+                join_method = {
+                    "LEFT": builder.left_join,
+                    "INNER": builder.inner_join,
+                }.get(explicit_join.join_type.upper())
+                if join_method is None:
+                    join_method = lambda table_name, alias, on_condition: builder.join(
+                        explicit_join.join_type.upper(),
+                        table_name,
+                        alias=alias,
+                        on_condition=on_condition,
+                    )
+                join_method(
+                    explicit_join.get_right_table_expr(),
+                    alias=explicit_join.right_alias,
+                    on_condition=" AND ".join(on_clauses),
+                )
+                explicit_joins_added.add(key)
+
+        def ensure_runtime_joins(field_name: str) -> None:
+            ensure_explicit_joins_for_field(field_name)
+            resolved = model.resolve_field(field_name, dialect_name=self._field_formula_dialect_name())
+            if resolved and resolved["join_def"]:
+                ensure_join(resolved["join_def"])
 
         # 2. SELECT columns
         has_aggregation = False
@@ -343,8 +1273,23 @@ class SemanticQueryService(SemanticServiceResolver):
                     columns_info.append(info)
                     has_aggregation = True
         else:
+            # QM contract: dimensions are not directly projectable; column
+            # entries must be ``measure`` / ``property`` / ``dim$id`` /
+            # ``dim$caption`` / ``dim$<attr>`` / ``AGG(...) [AS alias]``.
+            # Calc-field names declared in ``request.calculated_fields``
+            # pass through this loop silently — section 2.5 handles their
+            # SELECT emission; without this skip the strict resolver would
+            # reject them as unrecognised.
+            calc_field_names = {
+                (cf if isinstance(cf, str) else (cf.get("name") if isinstance(cf, dict) else getattr(cf, "name", None)))
+                for cf in (request.calculated_fields or [])
+            }
+            calc_field_names.discard(None)
+            calc_field_names.update(self._request_post_aggregate_calculation_names(request))
             for col_name in request.columns:
-                # Try inline expression: "sum(salesAmount) as totalSales"
+                # Inline aggregate path keeps its own AS-parser; check it
+                # first so non-aggregate alias parsing doesn't run for
+                # forms like ``SUM(x) AS y``.
                 inline = self._parse_inline_expression(col_name, model, ensure_join)
                 if inline:
                     builder.select(inline["select_expr"])
@@ -352,13 +1297,17 @@ class SemanticQueryService(SemanticServiceResolver):
                     has_aggregation = True
                     continue
 
-                resolved = model.resolve_field(col_name)
-                if resolved:
-                    # Auto-JOIN if needed
-                    if resolved["join_def"]:
-                        ensure_join(resolved["join_def"])
+                parts = parse_column_with_alias(col_name)
+                base_expr = parts.base_expr
+                user_alias = parts.user_alias
 
-                    label = resolved["alias_label"]
+                if base_expr in calc_field_names:
+                    continue
+
+                resolved = model.resolve_field_strict(base_expr, dialect_name=self._field_formula_dialect_name())
+                if resolved:
+                    ensure_runtime_joins(base_expr)
+                    label = user_alias or resolved["alias_label"]
                     sql_expr = resolved["sql_expr"]
 
                     if resolved["is_measure"] and resolved["aggregation"]:
@@ -374,91 +1323,1608 @@ class SemanticQueryService(SemanticServiceResolver):
                         builder.select(f"{sql_expr} AS {self._qi(label)}")
                         columns_info.append({"name": label, "fieldName": col_name, "expression": sql_expr, "aggregation": None})
                         selected_dims.append(sql_expr)
-                else:
-                    # Fallback: try as raw fact table column
-                    dim = model.get_dimension(col_name)
-                    measure = model.get_measure(col_name)
-                    if dim:
-                        col_expr = f"t.{dim.column}"
-                        label = dim.alias or dim.name
-                        builder.select(f"{col_expr} AS {self._qi(label)}")
-                        columns_info.append({"name": label, "fieldName": col_name, "expression": col_expr, "aggregation": None})
-                        selected_dims.append(col_expr)
-                    elif measure:
-                        info = self._build_measure_select(measure)
-                        builder.select(info["select_expr"])
-                        columns_info.append(info)
-                        has_aggregation = True
-                    else:
-                        warnings.append(f"Column not found: {col_name}")
+                    continue
+
+                # Bare-dimension hint preserves any user alias so the
+                # suggested fix is copy-paste ready.
+                dim = model.get_dimension(base_expr)
+                if dim is not None:
+                    suggested = f"{base_expr}$caption"
+                    if user_alias:
+                        suggested = f"{suggested} AS {user_alias}"
+                    raise ValueError(
+                        f"COLUMN_FIELD_NOT_FOUND: column {col_name!r} references "
+                        f"dimension {base_expr!r} directly. Dimensions are not "
+                        f"projectable; reference an attribute (e.g. "
+                        f"{base_expr + '$caption'!r} or {base_expr + '$id'!r}). "
+                        f"Hint: did you mean {suggested!r}?"
+                    )
+
+                raise ValueError(
+                    f"COLUMN_FIELD_NOT_FOUND: column {col_name!r} is not a "
+                    f"recognized field on model {model.name!r}. Valid forms are "
+                    f"``dim$id`` / ``dim$caption`` / ``dim$<custom_attr>`` / "
+                    f"``measureName`` / ``propertyName`` / "
+                    f"``AGG(measure) AS alias``."
+                )
 
         # 2.5 Process calculatedFields (aggregated calculations + window functions)
-        for cf_dict in request.calculated_fields:
-            cf = CalculatedFieldDef(**cf_dict) if isinstance(cf_dict, dict) else cf_dict
-            select_sql = self._build_calculated_field_sql(cf, model, ensure_join)
+        calc_field_defs = self._request_calculated_field_defs(request)
+        if calc_field_defs:
+            calc_field_defs = sort_calc_fields_by_dependencies(calc_field_defs)
+        post_aggregate_defs, post_aggregate_sugar_names = self._request_post_aggregate_calculation_defs(
+            request,
+            calc_field_defs,
+        )
+        if post_aggregate_sugar_names:
+            calc_field_defs = [
+                cf for cf in calc_field_defs
+                if (cf.alias or cf.name) not in post_aggregate_sugar_names
+                and cf.name not in post_aggregate_sugar_names
+            ]
+        self._reject_window_calculated_field_slice(request, calc_field_defs)
+        selected_aggregate_aliases = set(self._selected_aggregate_sql(columns_info).keys())
+        self._validate_post_aggregate_calculations(
+            post_aggregate_defs,
+            selected_aggregate_aliases,
+        )
+        self._reject_post_aggregate_calculated_fields(
+            request,
+            calc_field_defs,
+            selected_aggregate_aliases,
+        )
+        aggregate_calc_fields = self._aggregate_calc_field_names(
+            calc_field_defs,
+            model,
+            grouped=bool(request.group_by),
+        )
+
+        needs_cte_wrapping = False
+        inner_cfs = []
+        outer_cfs = []
+        outer_names = set()
+        post_aggregate_names = self._post_aggregate_alias_names(post_aggregate_defs)
+
+        if calc_field_defs:
+            for cf in calc_field_defs:
+                if cf.is_window_function():
+                    needs_cte_wrapping = True
+                    break
+        if post_aggregate_defs:
+            needs_cte_wrapping = True
+
+        if needs_cte_wrapping:
+            from foggy.dataset_model.semantic.formula_field_extractor import extract_formula_fields
+            for cf in calc_field_defs:
+                alias = cf.alias or cf.name
+                expr = str(cf.expression or "")
+                deps = extract_formula_fields(expr)
+                depends_on_outer = any(on in expr for on in outer_names)
+                if cf.is_window_function() or depends_on_outer:
+                    outer_cfs.append(cf)
+                    outer_names.add(alias)
+                else:
+                    inner_cfs.append(cf)
+        else:
+            inner_cfs = list(calc_field_defs)
+
+        compiled_calcs: Dict[str, str] = {}
+        compiled_calcs_params: Dict[str, List[Any]] = {}
+        calculate_context = self._build_calculate_query_context(request)
+
+        for cf in inner_cfs:
             alias = cf.alias or cf.name
-            builder.select(f"{select_sql} AS {self._qi(alias)}")
+            aggregate_measure_formula = self._is_measure_formula(
+                cf,
+                model,
+                grouped=bool(request.group_by),
+            )
+            if alias in (request.group_by or []) or cf.name in (request.group_by or []):
+                aggregate_measure_formula = False
+            select_sql, select_params = self._build_calculated_field_sql(
+                cf, model, ensure_join, compiled_calcs, compiled_calcs_params,
+                calculate_context=calculate_context,
+                aggregate_measure_formula=aggregate_measure_formula,
+            )
+            builder.select(
+                f"{select_sql} AS {self._qi(alias)}",
+                params=select_params or None,
+            )
             columns_info.append({
                 "name": alias, "fieldName": cf.name,
                 "expression": cf.expression, "aggregation": cf.agg,
                 "window": cf.is_window_function(),
             })
-            if cf.agg or cf.is_window_function():
+            if (
+                cf.agg
+                or cf.is_window_function()
+                or parse_inline_aggregate(str(cf.expression or ""))
+                or aggregate_measure_formula
+            ):
                 has_aggregation = True
 
-        # 3. WHERE clause
-        for filter_item in request.slice:
-            self._add_filter(builder, model, filter_item, ensure_join)
+        # 3. WHERE clause. Pure aggregate slice conditions are semantic
+        # post-aggregate filters and are emitted as HAVING by default.
+        effective_slice = list(request.slice or [])
+        effective_having = list(request.having or [])
+        post_aggregate_slice: List[Any] = []
+
+        # Ensure inline aggregate aliases are recognized as aggregate fields
+        all_aggregate_fields = aggregate_calc_fields | set(self._selected_aggregate_sql(columns_info).keys())
+
+        if post_aggregate_names:
+            effective_slice, post_aggregate_slice = self._partition_slice_for_post_aggregate(
+                effective_slice,
+                post_aggregate_names,
+            )
+
+        if self._auto_lift_aggregate_slice_to_having:
+            effective_slice, lifted_having = self._partition_slice_for_aggregate_lift(
+                model,
+                effective_slice,
+                all_aggregate_fields,
+            )
+            effective_having.extend(lifted_having)
+        else:
+            self._reject_aggregate_conditions_in_slice(model, effective_slice, all_aggregate_fields)
+
+        for filter_item in effective_slice:
+            self._add_filter(
+                builder, model, filter_item, ensure_join,
+                compiled_calcs=compiled_calcs,
+                compiled_calcs_params=compiled_calcs_params,
+            )
 
         # 4. GROUP BY
         if request.group_by:
             for col_name in request.group_by:
-                resolved = model.resolve_field(col_name)
+                # v1.5 Phase 2: calc field reference in GROUP BY
+                if compiled_calcs and col_name in compiled_calcs:
+                    builder.group_by(
+                        f"({compiled_calcs[col_name]})",
+                        params=compiled_calcs_params.get(col_name) or None,
+                    )
+                    continue
+                resolved = model.resolve_field(col_name, dialect_name=self._field_formula_dialect_name())
                 if resolved:
-                    if resolved["join_def"]:
-                        ensure_join(resolved["join_def"])
+                    ensure_runtime_joins(col_name)
                     builder.group_by(resolved["sql_expr"])
                 else:
                     dim = model.get_dimension(col_name)
-                    builder.group_by(f"t.{dim.column}" if dim else f"t.{col_name}")
-        elif has_aggregation and selected_dims:
+                    alias = model.get_table_alias_for_model(model.get_field_model_name(col_name))
+                    builder.group_by(f"{alias}.{dim.column}" if dim else f"{alias}.{col_name}")
+        elif (has_aggregation or effective_having) and selected_dims:
             for dim_expr in selected_dims:
                 builder.group_by(dim_expr)
 
         # 5. HAVING
+        if effective_having:
+            if not has_aggregation and not request.group_by and not selected_dims:
+                raise ValueError(
+                    "HAVING_REQUIRES_AGGREGATE_QUERY: aggregate filters require "
+                    "an aggregate measure, groupBy, or selected dimension columns."
+                )
+            selected_aggregate_sql = self._selected_aggregate_sql(columns_info)
+            for condition in effective_having:
+                fragment, params = self._build_having_condition(
+                    model,
+                    condition,
+                    ensure_runtime_joins,
+                    compiled_calcs=compiled_calcs,
+                    compiled_calcs_params=compiled_calcs_params,
+                    aggregate_calc_fields=all_aggregate_fields,
+                    selected_aggregate_sql=selected_aggregate_sql,
+                )
+                if fragment:
+                    builder.having(fragment, params=params or None)
+
         having_filters = (request.hints or {}).get("having", [])
         for hf in having_filters:
             col, op, val = hf.get("column"), hf.get("operator"), hf.get("value")
             if col and op and val is not None:
-                builder.having(f"{col} {op} ?", params=[val])
-
-        # 6. ORDER BY
-        for order_item in request.order_by:
-            column = order_item.get("column") or order_item.get("field")
-            direction = (order_item.get("direction") or order_item.get("dir", "asc")).upper()
-            if column:
-                resolved = model.resolve_field(column)
-                if resolved:
-                    if resolved["join_def"]:
-                        ensure_join(resolved["join_def"])
-                    if resolved["is_measure"]:
-                        builder.order_by(self._qi(resolved['alias_label']), direction)
-                    else:
-                        builder.order_by(resolved["sql_expr"], direction)
+                # v1.5 Phase 2: calc field reference in HAVING
+                if compiled_calcs and col in compiled_calcs:
+                    col_sql = f"({compiled_calcs[col]})"
+                    calc_params = list(compiled_calcs_params.get(col, []))
                 else:
-                    builder.order_by(column, direction)
+                    col_sql = col
+                    calc_params = []
+                # v1.4 M4 Step 4.1: calc bind params must precede the HAVING
+                # RHS value so the positional ``?`` binding matches the
+                # emitted SQL left-to-right.
+                builder.having(f"{col_sql} {op} ?", params=calc_params + [val])
 
-        # 7. LIMIT/OFFSET
-        limit = min(request.limit or self._default_limit, self._max_limit)
-        builder.limit(limit)
-        if request.start:
-            builder.offset(request.start)
+        plan = getattr(request, "domain_transport_plan", None)
+        if plan and plan.tuples:
+            from foggy.dataset_model.semantic.pivot.domain_transport import PIVOT_DOMAIN_TRANSPORT_REFUSED
+            for col in plan.columns:
+                ensure_runtime_joins(col)
 
-        sql, params = builder.build()
+            if len(plan.tuples) <= plan.threshold:
+                # Small domain fallback: inject OR-of-AND into builder.where
+                or_conditions = []
+                or_params = []
+                for tup in plan.tuples:
+                    and_conditions = []
+                    for i, col in enumerate(plan.columns):
+                        resolved = model.resolve_field_strict(col, dialect_name=self._field_formula_dialect_name())
+                        if not resolved:
+                            raise ValueError(f"{PIVOT_DOMAIN_TRANSPORT_REFUSED}: cannot resolve domain column {col!r}")
+                        sql_expr = resolved["sql_expr"]
+                        val = tup[i]
+                        if val is None:
+                            and_conditions.append(f"{sql_expr} IS NULL")
+                        else:
+                            and_conditions.append(f"{sql_expr} = ?")
+                            or_params.append(val)
+                    if and_conditions:
+                        or_conditions.append("(" + " AND ".join(and_conditions) + ")")
+
+                if or_conditions:
+                    builder.where("(" + " OR ".join(or_conditions) + ")", params=or_params)
+
+        # 6. ORDER BY and LIMIT (Deferred to outer query if CTE wrapping)
+        if not needs_cte_wrapping:
+            selected_order_aliases = self._build_selected_order_aliases(columns_info)
+            for order_item in request.order_by:
+                column, direction = self._normalize_order_by_item(order_item)
+                if column:
+                    selected_alias = selected_order_aliases.get(column)
+                    if selected_alias:
+                        builder.order_by(selected_alias, direction)
+                        continue
+                    resolved = model.resolve_field(column, dialect_name=self._field_formula_dialect_name())
+                    if resolved:
+                        ensure_runtime_joins(column)
+                        if resolved["is_measure"]:
+                            builder.order_by(self._qi(resolved['alias_label']), direction)
+                        else:
+                            builder.order_by(resolved["sql_expr"], direction)
+                    elif compiled_calcs and column in compiled_calcs:
+                        # v1.5 Phase 2: calc field not in SELECT, but ORDER BY
+                        # references it by name — inline the expression.
+                        builder.order_by(
+                            f"({compiled_calcs[column]})",
+                            direction,
+                            params=compiled_calcs_params.get(column) or None,
+                        )
+                    else:
+                        builder.order_by(column, direction)
+
+            # 7. LIMIT/OFFSET
+            limit = min(request.limit or self._default_limit, self._max_limit)
+            builder.limit(limit)
+            if request.start:
+                builder.offset(request.start)
+
+        hidden_dependency_names: List[str] = []
+        hidden_dependency_seen = set()
+        if needs_cte_wrapping:
+            selected_column_names = {
+                value
+                for c in columns_info
+                for value in (c.get("name"), c.get("fieldName"))
+                if value
+            }
+            inner_cf_names = {c.name for c in inner_cfs}
+            for cf in outer_cfs:
+                deps = []
+                if cf.partition_by:
+                    deps.extend(cf.partition_by)
+                if cf.window_order_by:
+                    deps.extend([w.get("field") for w in cf.window_order_by if w.get("field")])
+
+                for dep in deps:
+                    if dep in selected_column_names:
+                        continue
+                    if dep in outer_names or dep in inner_cf_names:
+                        continue
+
+                    dep_is_compiled = bool(compiled_calcs and dep in compiled_calcs)
+                    dep_resolved = model.resolve_field(dep, dialect_name=self._field_formula_dialect_name())
+                    dep_dim = model.get_dimension(dep)
+                    dep_measure = model.get_measure(dep)
+                    if (
+                        not dep_is_compiled
+                        and dep_resolved is None
+                        and dep_dim is None
+                        and dep_measure is None
+                    ):
+                        raise ValueError(
+                            f"WINDOW_DEPENDENCY_UNRESOLVABLE: window dependency '{dep}' "
+                            f"cannot be resolved as a QM measure, dimension, dimension property, "
+                            f"or prior calc-field name."
+                        )
+
+                    if has_aggregation:
+                        dep_is_measure = bool(
+                            dep_measure is not None
+                            or (dep_resolved is not None and dep_resolved.get("is_measure"))
+                        )
+                        if not dep_is_measure and (not request.group_by or dep not in request.group_by):
+                            raise ValueError(
+                                f"WINDOW_DEPENDENCY_GROUPING_ERROR: window dependency '{dep}' "
+                                f"must be added to groupBy in an aggregate query."
+                            )
+                    if dep not in hidden_dependency_seen:
+                        hidden_dependency_seen.add(dep)
+                        hidden_dependency_names.append(dep)
+
+            for dep in hidden_dependency_names:
+                dep_sql = self._resolve_single_field(dep, model, ensure_join, compiled_calcs)
+                dep_resolved = model.resolve_field(dep, dialect_name=self._field_formula_dialect_name())
+                if has_aggregation and dep_resolved and dep_resolved.get("is_measure") and dep_resolved.get("aggregation"):
+                    agg = dep_resolved["aggregation"]
+                    if agg == "COUNT_DISTINCT":
+                        dep_sql = f"COUNT(DISTINCT {dep_sql})"
+                    else:
+                        dep_sql = f"{agg}({dep_sql})"
+                builder.select(f"{dep_sql} AS {self._qi(dep)}")
+
+        inner_sql, inner_params = builder.build()
+        cte_stages = []
+
+        if needs_cte_wrapping:
+            inner_alias = "__STAGE_1__"
+            inner_stage = QueryBuildResultCteStage(
+                alias=inner_alias,
+                sql=inner_sql,
+                params=inner_params,
+                select_columns=[c["name"] for c in columns_info] + hidden_dependency_names
+            )
+            cte_stages.append(inner_stage)
+
+            outer_builder = SqlQueryBuilder(dialect=self._dialect)
+            outer_builder.from_table(inner_alias)
+            outer_columns_info = list(columns_info)
+
+            for col in columns_info:
+                outer_builder.select(self._qi(col["name"]))
+
+            outer_compiled_calcs = {}
+            for col in columns_info:
+                col_alias = col["name"]
+                col_ref = self._qi(col_alias)
+                outer_compiled_calcs[col_alias] = col_ref
+                field_name = col.get("fieldName")
+                if field_name:
+                    outer_compiled_calcs[field_name] = col_ref
+                    outer_compiled_calcs[parse_column_with_alias(field_name).base_expr] = col_ref
+            for dep in hidden_dependency_names:
+                outer_compiled_calcs[dep] = self._qi(dep)
+
+            outer_compiled_calcs_params = {}
+            for cf in outer_cfs:
+                select_sql, select_params = self._build_calculated_field_sql(
+                    cf, model, lambda x: None, outer_compiled_calcs, outer_compiled_calcs_params,
+                    calculate_context=calculate_context,
+                )
+                alias = cf.alias or cf.name
+                outer_builder.select(
+                    f"{select_sql} AS {self._qi(alias)}",
+                    params=select_params or None,
+                )
+                outer_columns_info.append({
+                    "name": alias, "fieldName": cf.name,
+                    "expression": cf.expression, "aggregation": cf.agg,
+                    "window": cf.is_window_function(),
+                })
+                outer_compiled_calcs[alias] = self._qi(alias)
+
+            for pac in post_aggregate_defs:
+                alias = str(pac.get("name") or "")
+                select_sql = self._build_post_aggregate_calculation_sql(pac, outer_compiled_calcs)
+                outer_builder.select(f"{select_sql} AS {self._qi(alias)}")
+                outer_columns_info.append({
+                    "name": alias,
+                    "fieldName": alias,
+                    "expression": f"ratio_to_total({pac.get('measure')})",
+                    "aggregation": None,
+                    "postAggregate": True,
+                    "kind": pac.get("kind"),
+                })
+                outer_compiled_calcs[alias] = self._qi(alias)
+
+            columns_info = outer_columns_info
+
+            if post_aggregate_defs:
+                post_alias = "__POST_AGG_STAGE__"
+                post_sql, post_params = outer_builder.build()
+                cte_stages.append(QueryBuildResultCteStage(
+                    alias=post_alias,
+                    sql=post_sql,
+                    params=post_params,
+                    select_columns=[c["name"] for c in columns_info],
+                ))
+
+                final_builder = SqlQueryBuilder(dialect=self._dialect)
+                final_builder.from_table(post_alias)
+                for col in columns_info:
+                    final_builder.select(self._qi(col["name"]))
+
+                final_aliases = self._build_selected_order_aliases(columns_info)
+                for filter_item in post_aggregate_slice:
+                    fragment, filter_params = self._build_outer_alias_filter_condition(
+                        filter_item,
+                        final_aliases,
+                    )
+                    if fragment:
+                        final_builder.where(fragment, params=filter_params or None)
+
+                selected_order_aliases = final_aliases
+                for order_item in request.order_by:
+                    column, direction = self._normalize_order_by_item(order_item)
+                    if column:
+                        selected_alias = selected_order_aliases.get(column)
+                        if selected_alias:
+                            final_builder.order_by(selected_alias, direction)
+                        else:
+                            final_builder.order_by(self._qi(column), direction)
+
+                limit = min(request.limit or self._default_limit, self._max_limit)
+                final_builder.limit(limit)
+                if request.start:
+                    final_builder.offset(request.start)
+
+                final_sql, final_params = final_builder.build()
+                sql = (
+                    f"WITH {inner_alias} AS (\n{self._indent_sql(inner_sql)}\n),\n"
+                    f"{post_alias} AS (\n{self._indent_sql(post_sql)}\n)\n"
+                    f"{final_sql}"
+                )
+                params = inner_params + post_params + final_params
+            else:
+                selected_order_aliases = self._build_selected_order_aliases(columns_info)
+                for order_item in request.order_by:
+                    column, direction = self._normalize_order_by_item(order_item)
+                    if column:
+                        selected_alias = selected_order_aliases.get(column)
+                        if selected_alias:
+                            outer_builder.order_by(selected_alias, direction)
+                        else:
+                            outer_builder.order_by(self._qi(column), direction)
+
+                limit = min(request.limit or self._default_limit, self._max_limit)
+                outer_builder.limit(limit)
+                if request.start:
+                    outer_builder.offset(request.start)
+
+                sql, params = outer_builder.build()
+
+                outer_stage = QueryBuildResultCteStage(
+                    alias="outer_stage",
+                    sql=sql,
+                    params=params,
+                    select_columns=[c["name"] for c in columns_info]
+                )
+                cte_stages.append(outer_stage)
+
+                sql = f"WITH {inner_alias} AS (\n{self._indent_sql(inner_sql)}\n)\n{sql}"
+                params = inner_params + params
+        else:
+            sql, params = inner_sql, inner_params
+
+        # 8. P3-C: Inject domain transport relation if requested and threshold exceeded
+        if plan and plan.tuples and len(plan.tuples) > plan.threshold:
+            from foggy.dataset_model.semantic.pivot.domain_transport import (
+                resolve_renderer, assemble_domain_transport_sql, PIVOT_DOMAIN_TRANSPORT_REFUSED
+            )
+            renderer = resolve_renderer(self._dialect)
+            fragment = renderer.render(plan)
+
+            field_sql_map = {}
+            for col in plan.columns:
+                resolved = model.resolve_field_strict(col, dialect_name=self._field_formula_dialect_name())
+                if not resolved:
+                    raise ValueError(
+                        f"{PIVOT_DOMAIN_TRANSPORT_REFUSED}: cannot resolve domain column {col!r}"
+                    )
+                field_sql_map[col] = resolved["sql_expr"]
+
+            sql, params = assemble_domain_transport_sql(
+                base_sql=sql,
+                base_params=params,
+                fragment=fragment,
+                field_sql_map=field_sql_map,
+                renderer=renderer,
+            )
 
         return QueryBuildResult(
-            sql=sql, params=params, warnings=warnings, columns=columns_info,
+            sql=sql, params=params, warnings=warnings, columns=columns_info, cte_stages=cte_stages
         )
+
+    def _with_unique_dimension_join_aliases(
+        self,
+        model: DbTableModelImpl,
+        request: SemanticQueryRequest,
+    ) -> DbTableModelImpl:
+        """Return a per-query model copy when dimension JOIN aliases collide.
+
+        DimensionJoinDef.get_alias() derives aliases from table names when
+        the TM does not declare one. Tables such as res_company and
+        res_currency both derive to "rc"; a single query can need both joins
+        through columns, slices, or system slices. Resolve those collisions at
+        build time so field resolution and JOIN emission use the same alias
+        map without mutating the registered model.
+        """
+        used = {
+            alias
+            for alias in model.model_alias_map.values()
+            if isinstance(alias, str) and alias
+        }
+        used.add(model.get_table_alias_for_model(model.name))
+
+        needed_join_names = self._dimension_join_names_needed_by_request(
+            model,
+            request,
+        )
+        assigned: Dict[str, str] = {}
+        changed = False
+        for join_def in model.dimension_joins:
+            if join_def.name not in needed_join_names:
+                continue
+            alias = join_def.get_alias()
+            if alias in used:
+                alias = self._unique_dimension_join_alias(join_def.name, used)
+                changed = True
+            used.add(alias)
+            assigned[join_def.name] = alias
+
+        if not changed:
+            return model
+
+        copied = model.model_copy(deep=True)
+        for join_def in copied.dimension_joins:
+            alias = assigned.get(join_def.name)
+            if alias:
+                join_def.alias = alias
+        return copied
+
+    def _unique_dimension_join_alias(self, join_name: str, used: set[str]) -> str:
+        sanitized = re.sub(r"[^0-9A-Za-z_]+", "_", join_name).strip("_")
+        if not sanitized:
+            sanitized = "dimension"
+        if sanitized[0].isdigit():
+            sanitized = f"d_{sanitized}"
+
+        base = f"j_{sanitized}"
+        alias = base
+        suffix = 2
+        while alias in used:
+            alias = f"{base}_{suffix}"
+            suffix += 1
+        return alias
+
+    def _dimension_join_names_needed_by_request(
+        self,
+        model: DbTableModelImpl,
+        request: SemanticQueryRequest,
+    ) -> set[str]:
+        join_defs = {join_def.name: join_def for join_def in model.dimension_joins}
+        needed: set[str] = set()
+
+        def add_field_ref(value: Any) -> None:
+            if not isinstance(value, str) or not value:
+                return
+            try:
+                value = parse_column_with_alias(value).base_expr
+            except Exception:
+                pass
+            if value in join_defs:
+                needed.add(value)
+            for match in re.finditer(r"\b([A-Za-z_][0-9A-Za-z_]*)\$", value):
+                dim_name = match.group(1)
+                if dim_name in join_defs:
+                    needed.add(dim_name)
+
+        def add_condition_refs(items: Optional[List[Any]]) -> None:
+            for item in items or []:
+                refs: set[str] = set()
+                self._collect_condition_field_refs(item, refs)
+                for ref in refs:
+                    add_field_ref(ref)
+
+        for column in request.columns or []:
+            add_field_ref(column)
+        for group_field in request.group_by or []:
+            add_field_ref(group_field)
+        for order_item in request.order_by or []:
+            if isinstance(order_item, dict):
+                add_field_ref(order_item.get("field") or order_item.get("column"))
+            else:
+                add_field_ref(order_item)
+        for calc_field in request.calculated_fields or []:
+            if isinstance(calc_field, dict):
+                add_field_ref(calc_field.get("expression"))
+                add_field_ref(calc_field.get("field"))
+                add_field_ref(calc_field.get("name"))
+            else:
+                add_field_ref(getattr(calc_field, "expression", None))
+                add_field_ref(getattr(calc_field, "field", None))
+                add_field_ref(getattr(calc_field, "name", None))
+
+        add_condition_refs(request.slice)
+        add_condition_refs(request.system_slice)
+        add_condition_refs(request.having)
+
+        if request.time_window:
+            tw = request.time_window
+            if isinstance(tw, dict):
+                for key in ("field", "dateField", "timeField", "orderByField"):
+                    add_field_ref(tw.get(key))
+                for key in ("targetMetrics", "partitionBy", "groupBy"):
+                    values = tw.get(key)
+                    if isinstance(values, list):
+                        for value in values:
+                            add_field_ref(value)
+            else:
+                for key in ("field", "date_field", "time_field", "order_by_field"):
+                    add_field_ref(getattr(tw, key, None))
+
+        plan = getattr(request, "domain_transport_plan", None)
+        for column in getattr(plan, "columns", []) or []:
+            add_field_ref(column)
+
+        pending = list(needed)
+        while pending:
+            join_def = join_defs.get(pending.pop())
+            if join_def and join_def.join_to and join_def.join_to not in needed:
+                needed.add(join_def.join_to)
+                pending.append(join_def.join_to)
+
+        return needed
+
+    def _build_time_window_query(
+        self,
+        model: DbTableModelImpl,
+        request: SemanticQueryRequest,
+        warnings: List[str],
+    ) -> QueryBuildResult:
+        """Build a two-stage rolling/cumulative timeWindow query.
+
+        Stage 1 aggregates the base metric at the requested time grain.
+        Stage 2 projects the requested columns plus generated window columns.
+        Stage 1 also lowers ``timeWindow.value`` / ``range`` into a base time
+        field filter when present. Comparative period uses a self-join over
+        the same base aggregate CTE.
+        """
+        tw, measure_fields = self._validate_time_window(model, request)
+
+        requested_metric_fields = (
+            list(tw.target_metrics) if tw.target_metrics else sorted(measure_fields)
+        )
+        group_fields = [
+            field for field in self._time_window_group_fields(request)
+            if field not in requested_metric_fields
+        ]
+        if tw.is_comparative():
+            return self._build_time_window_comparative_query(
+                model,
+                request,
+                warnings,
+                tw,
+                group_fields,
+                requested_metric_fields,
+            )
+        if tw.is_rolling():
+            expansion = TimeWindowExpander.expand_rolling(tw, group_fields, measure_fields)
+        elif tw.is_cumulative():
+            expansion = TimeWindowExpander.expand_cumulative(tw, group_fields, measure_fields)
+        else:
+            raise NotImplementedError(
+                "TIMEWINDOW_NOT_IMPLEMENTED: Python engine only supports "
+                "rolling/cumulative timeWindow SQL at this stage."
+            )
+
+        metric_fields = [column.metric for column in expansion.additional_columns]
+        base_group_fields = self._unique_fields(
+            list(group_fields)
+            + list(expansion.partition_by_fields)
+            + [expansion.order_by_field]
+        )
+        base_sql, params = self._build_time_window_base_sql(
+            model,
+            request,
+            tw,
+            base_group_fields,
+            metric_fields,
+        )
+
+        projected_aliases = [column.alias for column in expansion.additional_columns]
+        requested_columns = self._time_window_outer_columns(
+            request,
+            base_group_fields,
+            metric_fields,
+            projected_aliases,
+        )
+        base_field_set = set(base_group_fields) | set(metric_fields)
+        select_parts: List[str] = []
+        columns_info: List[Dict[str, Any]] = []
+
+        for column in requested_columns:
+            projected = next(
+                (c for c in expansion.additional_columns if c.alias == column),
+                None,
+            )
+            if projected is not None:
+                over_clause = self._build_time_window_over_clause(projected)
+                select_parts.append(
+                    f"{projected.agg}({self._qi(projected.metric)}) "
+                    f"OVER ({over_clause}) AS {self._qi(projected.alias)}"
+                )
+                columns_info.append({
+                    "name": projected.alias,
+                    "fieldName": projected.alias,
+                    "expression": projected.metric,
+                    "aggregation": projected.agg,
+                    "window": True,
+                })
+                continue
+            if column not in base_field_set:
+                raise ValueError(
+                    f"TIMEWINDOW_COLUMN_NOT_AVAILABLE: column {column!r} is "
+                    "not produced by the base timeWindow plan."
+                )
+            select_parts.append(self._qi(column))
+            columns_info.append({
+                "name": column,
+                "fieldName": column,
+                "expression": column,
+                "aggregation": None,
+            })
+
+        outer_sql = (
+            "WITH __time_window_base AS (\n"
+            f"{self._indent_sql(base_sql)}\n"
+            ")\n"
+            f"SELECT {', '.join(select_parts)}\n"
+            "FROM __time_window_base"
+        )
+
+        return self._finalize_time_window_query(
+            outer_sql,
+            params,
+            warnings,
+            columns_info,
+            request,
+            base_field_set | set(projected_aliases),
+        )
+
+    def _build_time_window_comparative_query(
+        self,
+        model: DbTableModelImpl,
+        request: SemanticQueryRequest,
+        warnings: List[str],
+        tw: TimeWindowDef,
+        group_fields: List[str],
+        metric_fields: List[str],
+    ) -> QueryBuildResult:
+        compare_key_fields = self._time_window_compare_key_fields(tw)
+        base_group_fields = self._unique_fields(list(group_fields) + compare_key_fields)
+        base_sql, params = self._build_time_window_base_sql(
+            model,
+            request,
+            tw,
+            base_group_fields,
+            metric_fields,
+        )
+
+        projected_aliases = self._time_window_comparative_aliases(metric_fields)
+        requested_columns = self._time_window_outer_columns(
+            request,
+            group_fields,
+            metric_fields,
+            projected_aliases,
+        )
+        base_field_set = set(base_group_fields) | set(metric_fields)
+        select_parts: List[str] = []
+        columns_info: List[Dict[str, Any]] = []
+
+        for column in requested_columns:
+            metric, suffix = self._parse_time_window_comparative_alias(column)
+            if metric and suffix:
+                if metric not in metric_fields:
+                    raise ValueError(
+                        f"TIMEWINDOW_COLUMN_NOT_AVAILABLE: comparative metric "
+                        f"{metric!r} is not produced by the base timeWindow plan."
+                    )
+                select_parts.append(
+                    self._time_window_comparative_select_expr(metric, suffix)
+                )
+                columns_info.append({
+                    "name": column,
+                    "fieldName": column,
+                    "expression": metric,
+                    "comparison": tw.comparison,
+                    "window": True,
+                })
+                continue
+            if column not in base_field_set:
+                raise ValueError(
+                    f"TIMEWINDOW_COLUMN_NOT_AVAILABLE: column {column!r} is "
+                    "not produced by the base timeWindow plan."
+                )
+            select_parts.append(f"cur.{self._qi(column)} AS {self._qi(column)}")
+            columns_info.append({
+                "name": column,
+                "fieldName": column,
+                "expression": column,
+                "aggregation": None,
+            })
+
+        join_condition = self._build_time_window_comparative_join_condition(
+            tw,
+            group_fields,
+        )
+        outer_sql = (
+            "WITH __time_window_base AS (\n"
+            f"{self._indent_sql(base_sql)}\n"
+            ")\n"
+            f"SELECT {', '.join(select_parts)}\n"
+            "FROM __time_window_base cur\n"
+            f"LEFT JOIN __time_window_base prior ON {join_condition}"
+        )
+
+        return self._finalize_time_window_query(
+            outer_sql,
+            params,
+            warnings,
+            columns_info,
+            request,
+            base_field_set | set(projected_aliases),
+        )
+
+    def _finalize_time_window_query(
+        self,
+        sql: str,
+        params: List[Any],
+        warnings: List[str],
+        columns_info: List[Dict[str, Any]],
+        request: SemanticQueryRequest,
+        available_columns: set[str],
+    ) -> QueryBuildResult:
+        calc_fields = self._request_calculated_field_defs(request)
+        if not calc_fields:
+            order_aliases = self._time_window_order_aliases(columns_info)
+            return QueryBuildResult(
+                sql=self._apply_time_window_order_limit(
+                    sql,
+                    request,
+                    available_columns,
+                    order_aliases,
+                ),
+                params=params,
+                warnings=warnings,
+                columns=columns_info,
+            )
+
+        self._validate_time_window_post_calculated_fields(calc_fields, available_columns)
+        calc_selects, calc_params, calc_columns = self._build_time_window_post_calc_selects(
+            calc_fields,
+            available_columns,
+        )
+        wrapped_sql = (
+            "SELECT tw_result.*, "
+            + ", ".join(calc_selects)
+            + "\nFROM (\n"
+            + self._indent_sql(sql)
+            + "\n) tw_result"
+        )
+        wrapped_available = set(available_columns)
+        wrapped_available.update(column["name"] for column in calc_columns)
+        order_aliases = self._time_window_order_aliases(columns_info + calc_columns)
+        wrapped_sql = self._apply_time_window_order_limit(
+            wrapped_sql,
+            request,
+            wrapped_available,
+            order_aliases,
+        )
+        return QueryBuildResult(
+            sql=wrapped_sql,
+            params=calc_params + params,
+            warnings=warnings,
+            columns=columns_info + calc_columns,
+        )
+
+    def _apply_time_window_order_limit(
+        self,
+        sql: str,
+        request: SemanticQueryRequest,
+        available_columns: set[str],
+        order_aliases: Optional[Dict[str, str]] = None,
+    ) -> str:
+        order_parts = self._build_time_window_outer_order_by(
+            request,
+            available_columns,
+            order_aliases or {},
+        )
+        if order_parts:
+            sql += "\nORDER BY " + ", ".join(order_parts)
+
+        limit = min(request.limit or self._default_limit, self._max_limit)
+        sql += f"\nLIMIT {limit}"
+        if request.start:
+            sql += f" OFFSET {request.start}"
+        return sql
+
+    def _validate_time_window_post_calculated_fields(
+        self,
+        calc_fields: List[CalculatedFieldDef],
+        available_columns: set[str],
+    ) -> None:
+        calc_names = {cf.name for cf in calc_fields}
+        for cf in calc_fields:
+            if cf.agg:
+                raise ValueError(TimeWindowValidator.POST_CALC_FIELD_AGG_UNSUPPORTED)
+            if cf.partition_by or cf.window_order_by or cf.window_frame:
+                raise ValueError(TimeWindowValidator.POST_CALC_FIELD_WINDOW_UNSUPPORTED)
+            for ref in extract_field_dependencies(cf.expression or ""):
+                if ref not in available_columns and ref not in calc_names:
+                    raise ValueError(TimeWindowValidator.POST_CALC_FIELD_NOT_FOUND)
+
+    def _build_time_window_post_calc_selects(
+        self,
+        calc_fields: List[CalculatedFieldDef],
+        available_columns: set[str],
+    ) -> Tuple[List[str], List[Any], List[Dict[str, Any]]]:
+        sorted_fields = sort_calc_fields_by_dependencies(calc_fields)
+        compiled_calcs: Dict[str, str] = {}
+        compiled_params: Dict[str, List[Any]] = {}
+        select_parts: List[str] = []
+        params: List[Any] = []
+        columns_info: List[Dict[str, Any]] = []
+
+        for cf in sorted_fields:
+            def _resolver(name: str):
+                if name in compiled_calcs:
+                    nested_params = list(compiled_params.get(name, []))
+                    if nested_params:
+                        return f"({compiled_calcs[name]})", nested_params
+                    return f"({compiled_calcs[name]})"
+                if name in available_columns:
+                    return f"tw_result.{self._qi(name)}"
+                raise ValueError(TimeWindowValidator.POST_CALC_FIELD_NOT_FOUND)
+
+            compiled = self._get_formula_compiler().compile(
+                cf.expression,
+                _resolver,
+                calculate_context=CalculateQueryContext(
+                    time_window_post_calculated_fields=True,
+                    supports_grouped_aggregate_window=self._calculate_window_supported(),
+                ),
+            )
+            alias = cf.alias or cf.name
+            select_parts.append(
+                f"{compiled.sql_fragment} AS {self._qi(alias)}"
+            )
+            field_params = list(compiled.bind_params)
+            params.extend(field_params)
+            compiled_calcs[cf.name] = compiled.sql_fragment
+            compiled_params[cf.name] = field_params
+            columns_info.append({
+                "name": alias,
+                "fieldName": cf.name,
+                "expression": cf.expression,
+                "aggregation": None,
+                "timeWindowPostCalculated": True,
+            })
+
+        return select_parts, params, columns_info
+
+    def _time_window_order_aliases(
+        self,
+        columns_info: List[Dict[str, Any]],
+    ) -> Dict[str, str]:
+        alias_map: Dict[str, str] = {}
+        for column in columns_info:
+            name = column.get("name")
+            field_name = column.get("fieldName")
+            if not name:
+                continue
+            alias_map[name] = name
+            if field_name:
+                alias_map[field_name] = name
+        return alias_map
+
+    def _time_window_comparative_aliases(self, metric_fields: List[str]) -> List[str]:
+        aliases: List[str] = []
+        for metric in metric_fields:
+            aliases.extend([
+                f"{metric}__prior",
+                f"{metric}__diff",
+                f"{metric}__ratio",
+            ])
+        return aliases
+
+    def _parse_time_window_comparative_alias(
+        self,
+        column: str,
+    ) -> Tuple[Optional[str], Optional[str]]:
+        for suffix in ("prior", "diff", "ratio"):
+            marker = f"__{suffix}"
+            if column.endswith(marker):
+                return column[:-len(marker)], suffix
+        return None, None
+
+    def _time_window_comparative_select_expr(self, metric: str, suffix: str) -> str:
+        cur_metric = f"cur.{self._qi(metric)}"
+        prior_metric = f"prior.{self._qi(metric)}"
+        alias = self._qi(f"{metric}__{suffix}")
+        if suffix == "prior":
+            return f"{prior_metric} AS {alias}"
+        if suffix == "diff":
+            return f"({cur_metric} - {prior_metric}) AS {alias}"
+        return (
+            f"CASE WHEN {prior_metric} IS NULL OR {prior_metric} = 0 "
+            f"THEN NULL ELSE ({cur_metric} - {prior_metric}) * 1.0 / "
+            f"{prior_metric} END AS {alias}"
+        )
+
+    def _time_window_compare_key_fields(self, tw: TimeWindowDef) -> List[str]:
+        base_field = self._time_window_base_field(tw.field)
+        if tw.comparison == "yoy":
+            if tw.grain == "year":
+                return [f"{base_field}$year"]
+            if tw.grain == "quarter":
+                return [f"{base_field}$year", f"{base_field}$quarter"]
+            if tw.grain == "month":
+                return [f"{base_field}$year", f"{base_field}$month"]
+            if tw.grain == "week":
+                return [f"{base_field}$year", f"{base_field}$week"]
+        if tw.comparison == "mom":
+            return [f"{base_field}$year", f"{base_field}$month"]
+        if tw.comparison == "wow":
+            if tw.grain == "week":
+                return [f"{base_field}$year", f"{base_field}$week"]
+            return [tw.field]
+        return [tw.field]
+
+    def _build_time_window_comparative_join_condition(
+        self,
+        tw: TimeWindowDef,
+        group_fields: List[str],
+    ) -> str:
+        base_field = self._time_window_base_field(tw.field)
+        conditions: List[str] = []
+        for field in group_fields:
+            if self._is_time_window_time_field(base_field, field):
+                continue
+            conditions.append(f"cur.{self._qi(field)} = prior.{self._qi(field)}")
+        conditions.extend(self._time_window_period_join_conditions(tw))
+        return " AND ".join(conditions) if conditions else "1 = 1"
+
+    def _time_window_period_join_conditions(self, tw: TimeWindowDef) -> List[str]:
+        base_field = self._time_window_base_field(tw.field)
+        year = f"{base_field}$year"
+        quarter = f"{base_field}$quarter"
+        month = f"{base_field}$month"
+        week = f"{base_field}$week"
+        if tw.comparison == "yoy":
+            conditions = [f"cur.{self._qi(year)} = prior.{self._qi(year)} + 1"]
+            if tw.grain == "quarter":
+                conditions.append(f"cur.{self._qi(quarter)} = prior.{self._qi(quarter)}")
+            elif tw.grain == "month":
+                conditions.append(f"cur.{self._qi(month)} = prior.{self._qi(month)}")
+            elif tw.grain == "week":
+                conditions.append(f"cur.{self._qi(week)} = prior.{self._qi(week)}")
+            return conditions
+        if tw.comparison == "mom":
+            return [
+                f"(cur.{self._qi(year)} * 12 + cur.{self._qi(month)}) = "
+                f"(prior.{self._qi(year)} * 12 + prior.{self._qi(month)} + 1)"
+            ]
+        if tw.comparison == "wow" and tw.grain == "week":
+            return [
+                f"(cur.{self._qi(year)} * 53 + cur.{self._qi(week)}) = "
+                f"(prior.{self._qi(year)} * 53 + prior.{self._qi(week)} + 1)"
+            ]
+        # NOTE: For compact integer date keys (e.g. 20240101), adding 7
+        # does NOT yield the date 7 days later (20240101+7 = 20240108 is
+        # correct only within the same month).  This is a known limitation
+        # aligned with Java's approach; wow+day on compact-key models may
+        # produce incorrect results near month boundaries.
+        return [f"cur.{self._qi(tw.field)} = prior.{self._qi(tw.field)} + 7"]
+
+    @staticmethod
+    def _time_window_base_field(field: str) -> str:
+        return field.rsplit("$", 1)[0] if "$" in field else field
+
+    @staticmethod
+    def _is_time_window_time_field(base_field: str, field: str) -> bool:
+        return field == base_field or field.startswith(f"{base_field}$")
+
+    def _validate_time_window(
+        self,
+        model: DbTableModelImpl,
+        request: SemanticQueryRequest,
+    ) -> Tuple[TimeWindowDef, set[str]]:
+        tw = TimeWindowDef.from_map(request.time_window)
+        if tw is None:
+            raise ValueError("timeWindow must be an object")
+        calc_names = {cf.name for cf in self._request_calculated_field_defs(request)}
+        if calc_names and tw.target_metrics:
+            for metric in tw.target_metrics:
+                if metric in calc_names:
+                    raise ValueError(
+                        TimeWindowValidator.TARGET_CALCULATED_FIELD_UNSUPPORTED
+                    )
+        available_fields, time_fields, measure_fields = collect_time_window_field_sets(model)
+        error_code = TimeWindowValidator.validate(
+            tw,
+            available_fields=available_fields,
+            time_fields=time_fields,
+            measure_fields=measure_fields,
+        )
+        if error_code is not None:
+            raise ValueError(error_code)
+        return tw, measure_fields
+
+    @staticmethod
+    def _request_calculated_field_defs(
+        request: SemanticQueryRequest,
+    ) -> List[CalculatedFieldDef]:
+        """Return request calculatedFields with Java camelCase keys normalised."""
+        calc_fields: List[CalculatedFieldDef] = []
+        for cf in request.calculated_fields or []:
+            if isinstance(cf, CalculatedFieldDef):
+                calc_fields.append(cf)
+                continue
+            if isinstance(cf, dict):
+                payload = dict(cf)
+                aliases = {
+                    "returnType": "return_type",
+                    "dependsOn": "depends_on",
+                    "partitionBy": "partition_by",
+                    "windowOrderBy": "window_order_by",
+                    "windowFrame": "window_frame",
+                }
+                for java_key, py_key in aliases.items():
+                    if java_key in payload and py_key not in payload:
+                        payload[py_key] = payload[java_key]
+                calc_fields.append(CalculatedFieldDef(**payload))
+                continue
+            calc_fields.append(cf)
+        return calc_fields
+
+    @staticmethod
+    def _request_post_aggregate_calculation_names(
+        request: SemanticQueryRequest,
+    ) -> set[str]:
+        names: set[str] = set()
+        for item in getattr(request, "post_aggregate_calculations", None) or []:
+            name = item.get("name") if isinstance(item, dict) else getattr(item, "name", None)
+            if name:
+                names.add(str(name))
+        return names
+
+    def _request_post_aggregate_calculation_defs(
+        self,
+        request: SemanticQueryRequest,
+        calc_field_defs: List[CalculatedFieldDef],
+    ) -> Tuple[List[Dict[str, Any]], set[str]]:
+        """Normalize explicit postAggregateCalculations and ratio_to_total sugar."""
+        result: List[Dict[str, Any]] = []
+        sugar_names: set[str] = set()
+        seen: set[str] = set()
+
+        for item in getattr(request, "post_aggregate_calculations", None) or []:
+            if not isinstance(item, dict):
+                raise ValueError(
+                    "POST_AGGREGATE_CALCULATION_INVALID: postAggregateCalculations "
+                    "entries must be objects."
+                )
+            payload = dict(item)
+            name = str(payload.get("name") or "")
+            if not name:
+                raise ValueError(
+                    "POST_AGGREGATE_CALCULATION_INVALID: postAggregateCalculations "
+                    "entries require a non-empty name."
+                )
+            if name in seen:
+                raise ValueError(
+                    f"POST_AGGREGATE_CALCULATION_DUPLICATE: duplicate postAggregateCalculations name {name!r}."
+                )
+            seen.add(name)
+            result.append(payload)
+
+        for cf in calc_field_defs or []:
+            measure = self._extract_ratio_to_total_measure(str(cf.expression or ""))
+            if not measure:
+                continue
+            alias = cf.alias or cf.name
+            if alias in seen:
+                raise ValueError(
+                    f"POST_AGGREGATE_CALCULATION_DUPLICATE: duplicate postAggregateCalculations name {alias!r}."
+                )
+            seen.add(alias)
+            sugar_names.add(alias)
+            result.append({
+                "name": alias,
+                "kind": "ratioToTotal",
+                "measure": measure,
+                "scope": "grandTotal",
+                "format": "ratio",
+                "source": "calculatedFields",
+            })
+
+        return result, sugar_names
+
+    def _extract_ratio_to_total_measure(self, expression: str) -> Optional[str]:
+        match = self._RATIO_TO_TOTAL_SUGAR_RE.match(expression or "")
+        if not match:
+            return None
+        return match.group(1)
+
+    @staticmethod
+    def _post_aggregate_alias_names(items: List[Dict[str, Any]]) -> set[str]:
+        return {str(item.get("name")) for item in items or [] if item.get("name")}
+
+    def _validate_post_aggregate_calculations(
+        self,
+        items: List[Dict[str, Any]],
+        selected_aggregate_aliases: set[str],
+    ) -> None:
+        for item in items or []:
+            name = str(item.get("name") or "")
+            kind = str(item.get("kind") or "")
+            measure = str(item.get("measure") or "")
+            scope = str(item.get("scope") or "grandTotal")
+            fmt = str(item.get("format") or "ratio")
+            if kind != "ratioToTotal":
+                raise ValueError(
+                    "POST_AGGREGATE_CALCULATION_UNSUPPORTED: only "
+                    f"kind='ratioToTotal' is supported in v1.6; got {kind!r} "
+                    f"for {name!r}."
+                )
+            if scope != "grandTotal":
+                raise ValueError(
+                    "POST_AGGREGATE_CALCULATION_UNSUPPORTED: only "
+                    f"scope='grandTotal' is supported in v1.6; got {scope!r} "
+                    f"for {name!r}."
+                )
+            if fmt not in {"ratio", "percent"}:
+                raise ValueError(
+                    "POST_AGGREGATE_CALCULATION_UNSUPPORTED: format must be "
+                    f"'ratio' or 'percent'; got {fmt!r} for {name!r}."
+                )
+            if not measure:
+                raise ValueError(
+                    f"POST_AGGREGATE_MEASURE_REQUIRED: ratioToTotal {name!r} requires measure."
+                )
+            if measure not in selected_aggregate_aliases:
+                raise ValueError(
+                    "POST_AGGREGATE_MEASURE_NOT_FOUND: ratioToTotal "
+                    f"{name!r} measure {measure!r} must reference a selected "
+                    "aggregate alias from columns[]."
+                )
+
+    def _build_post_aggregate_calculation_sql(
+        self,
+        item: Dict[str, Any],
+        alias_refs: Dict[str, str],
+    ) -> str:
+        kind = str(item.get("kind") or "")
+        if kind != "ratioToTotal":
+            raise ValueError(
+                f"POST_AGGREGATE_CALCULATION_UNSUPPORTED: unsupported kind {kind!r}."
+            )
+        measure = str(item.get("measure") or "")
+        measure_ref = alias_refs.get(measure)
+        if not measure_ref:
+            raise ValueError(
+                "POST_AGGREGATE_MEASURE_NOT_FOUND: ratioToTotal measure "
+                f"{measure!r} is not available in the grouped result."
+            )
+        expr = f"{measure_ref} / NULLIF(SUM({measure_ref}) OVER (), 0)"
+        if str(item.get("format") or "ratio") == "percent":
+            expr = f"({expr}) * 100"
+        return expr
+
+    def _build_time_window_base_sql(
+        self,
+        model: DbTableModelImpl,
+        request: SemanticQueryRequest,
+        tw: TimeWindowDef,
+        group_fields: List[str],
+        metric_fields: List[str],
+    ) -> Tuple[str, List[Any]]:
+        builder = SqlQueryBuilder()
+        builder.from_table(
+            model.get_table_expr_for_model(model.name),
+            alias=model.get_table_alias_for_model(model.name),
+        )
+        joined_dims: Dict[str, DimensionJoinDef] = {}
+        explicit_joins_added: set[tuple[str, str, str]] = set()
+
+        def ensure_explicit_joins_for_field(field_name: str) -> None:
+            field_model_name = model.get_field_model_name(field_name)
+            if field_model_name == model.name:
+                return
+            for explicit_join in model.explicit_joins:
+                if explicit_join.right_model != field_model_name:
+                    continue
+                key = (
+                    explicit_join.join_type,
+                    explicit_join.left_model,
+                    explicit_join.right_model,
+                )
+                if key in explicit_joins_added:
+                    continue
+                on_clauses: List[str] = []
+                for condition in explicit_join.conditions:
+                    left_resolved = model.resolve_field_for_model(
+                        condition.left_field,
+                        condition.left_model,
+                        dialect_name=self._field_formula_dialect_name(),
+                    )
+                    right_resolved = model.resolve_field_for_model(
+                        condition.right_field,
+                        condition.right_model,
+                        dialect_name=self._field_formula_dialect_name(),
+                    )
+                    if left_resolved is None or right_resolved is None:
+                        raise ValueError(
+                            "Failed to resolve explicit join condition "
+                            f"{condition.left_field} = {condition.right_field}"
+                        )
+                    on_clauses.append(
+                        f"{left_resolved['sql_expr']} = {right_resolved['sql_expr']}"
+                    )
+                join_method = {
+                    "LEFT": builder.left_join,
+                    "INNER": builder.inner_join,
+                }.get(explicit_join.join_type.upper())
+                if join_method is None:
+                    join_method = lambda table_name, alias, on_condition: builder.join(
+                        explicit_join.join_type.upper(),
+                        table_name,
+                        alias=alias,
+                        on_condition=on_condition,
+                    )
+                join_method(
+                    explicit_join.get_right_table_expr(),
+                    alias=explicit_join.right_alias,
+                    on_condition=" AND ".join(on_clauses),
+                )
+                explicit_joins_added.add(key)
+
+        def ensure_join(join_def: DimensionJoinDef) -> None:
+            if not join_def.table_name:
+                return
+            if join_def.name in joined_dims:
+                return
+            ensure_explicit_joins_for_field(join_def.name)
+            joined_dims[join_def.name] = join_def
+            table_alias = join_def.get_alias()
+            join_source_alias, join_source_column = self._resolve_dimension_join_source(
+                model,
+                join_def,
+                ensure_join=ensure_join,
+            )
+            on_cond = (
+                f"{join_source_alias}.{join_source_column} = "
+                f"{table_alias}.{join_def.primary_key}"
+            )
+            builder.left_join(join_def.table_name, alias=table_alias, on_condition=on_cond)
+
+        def ensure_runtime_joins(field_name: Any) -> None:
+            if isinstance(field_name, DimensionJoinDef):
+                ensure_join(field_name)
+                return
+            ensure_explicit_joins_for_field(field_name)
+            resolved = model.resolve_field(field_name, dialect_name=self._field_formula_dialect_name())
+            if resolved and resolved["join_def"]:
+                ensure_join(resolved["join_def"])
+
+        for field in group_fields:
+            resolved = model.resolve_field_strict(field, dialect_name=self._field_formula_dialect_name())
+            if not resolved:
+                raise ValueError(
+                    f"TIMEWINDOW_FIELD_NOT_FOUND: base field {field!r} "
+                    "cannot be resolved."
+                )
+            ensure_runtime_joins(field)
+            builder.select(f"{resolved['sql_expr']} AS {self._qi(field)}")
+            builder.group_by(resolved["sql_expr"])
+
+        for metric in metric_fields:
+            resolved = model.resolve_field_strict(metric, dialect_name=self._field_formula_dialect_name())
+            if not resolved or not resolved["is_measure"]:
+                raise ValueError(
+                    f"TIMEWINDOW_TARGET_NOT_AGGREGATE: metric {metric!r} "
+                    "cannot be resolved as a measure."
+                )
+            aggregation = resolved["aggregation"] or "SUM"
+            if aggregation == "COUNT_DISTINCT":
+                expr = f"COUNT(DISTINCT {resolved['sql_expr']})"
+            else:
+                expr = f"{aggregation}({resolved['sql_expr']})"
+            builder.select(f"{expr} AS {self._qi(metric)}")
+
+        time_range_filter = self._time_window_range_filter(model, tw)
+        if time_range_filter:
+            self._add_filter(builder, model, time_range_filter, ensure_runtime_joins)
+
+        for filter_item in request.slice:
+            self._add_filter(builder, model, filter_item, ensure_runtime_joins)
+
+        return builder.build()
+
+    def _time_window_range_filter(
+        self,
+        model: DbTableModelImpl,
+        tw: TimeWindowDef,
+    ) -> Optional[Dict[str, Any]]:
+        if not tw.value:
+            return None
+        values = [
+            self._coerce_time_window_bound(
+                model,
+                tw.field,
+                RelativeDateParser.resolve(value),
+            )
+            for value in tw.value
+        ]
+        return {
+            "field": tw.field,
+            "op": tw.range,
+            "value": values,
+        }
+
+    @staticmethod
+    def _coerce_time_window_bound(
+        model: DbTableModelImpl,
+        field: str,
+        value: Any,
+    ) -> Any:
+        """Coerce all-digit timeWindow bound values to int for date-key columns.
+
+        Only activates when *all* of these hold:
+          1. ``value`` is an all-digit string (e.g. ``"20240101"``).
+          2. ``field`` ends with ``$id`` (dimension id accessor).
+          3. The underlying dimension join's primary key column name ends with
+             ``_key`` **and** the dimension text contains a date/time/calendar
+             hint.
+
+        This heuristic is intentionally narrow to avoid mis-coercing non-date
+        integer IDs.  For ISO date strings (``"2024-01-01"``) or non-digit
+        values the coercion is skipped and the string is passed through.
+        """
+        if not isinstance(value, str) or not value.isdigit():
+            return value
+        if not field.endswith("$id"):
+            return value
+
+        dim_name = field.split("$", 1)[0]
+        join_def = model.get_dimension_join(dim_name)
+        if join_def is None:
+            return value
+
+        key_name = (join_def.primary_key or "").lower()
+        dim_hint = " ".join(
+            part for part in (
+                dim_name,
+                join_def.name,
+                join_def.table_name,
+                join_def.description,
+            )
+            if part
+        ).lower()
+        is_date_like = any(token in dim_hint for token in ("date", "time", "calendar"))
+        if is_date_like and key_name.endswith("_key"):
+            return int(value)
+        return value
+
+    def _time_window_group_fields(self, request: SemanticQueryRequest) -> List[str]:
+        fields: List[str] = []
+        for item in request.group_by or []:
+            field_name = self._time_window_field_name(item)
+            if field_name:
+                fields.append(field_name)
+        if fields:
+            return self._unique_fields(fields)
+
+        calc_names = {
+            cf.name for cf in self._request_calculated_field_defs(request)
+        }
+        for column in request.columns or []:
+            if not isinstance(column, str):
+                continue
+            base_expr = parse_column_with_alias(column).base_expr
+            if base_expr in calc_names:
+                continue
+            if "__" in base_expr:
+                continue
+            fields.append(base_expr)
+        return self._unique_fields(fields)
+
+    def _time_window_outer_columns(
+        self,
+        request: SemanticQueryRequest,
+        group_fields: List[str],
+        metric_fields: List[str],
+        projected_aliases: List[str],
+    ) -> List[str]:
+        calc_names = {
+            cf.name for cf in self._request_calculated_field_defs(request)
+        }
+        columns = [
+            parse_column_with_alias(column).base_expr
+            for column in (request.columns or [])
+            if isinstance(column, str)
+            and parse_column_with_alias(column).base_expr not in calc_names
+        ]
+        if not columns:
+            columns = list(group_fields) + list(metric_fields)
+        columns = self._unique_fields(columns)
+        for alias in projected_aliases:
+            if alias not in columns:
+                columns.append(alias)
+        return columns
+
+    def _build_time_window_over_clause(self, column) -> str:
+        parts: List[str] = []
+        if column.partition_by:
+            parts.append(
+                "PARTITION BY "
+                + ", ".join(self._qi(field) for field in column.partition_by)
+            )
+        if column.order_by:
+            parts.append(
+                "ORDER BY "
+                + ", ".join(f"{self._qi(field)} ASC" for field in column.order_by)
+            )
+        if column.window_frame:
+            parts.append(column.window_frame)
+        return " ".join(parts)
+
+    def _build_time_window_outer_order_by(
+        self,
+        request: SemanticQueryRequest,
+        available_columns: set[str],
+        order_aliases: Dict[str, str],
+    ) -> List[str]:
+        order_parts: List[str] = []
+        for item in request.order_by or []:
+            field_name, direction_upper = self._normalize_order_by_item(item)
+            if not field_name:
+                continue
+            order_column = order_aliases.get(field_name, field_name)
+            if order_column not in available_columns:
+                raise ValueError(
+                    f"TIMEWINDOW_ORDER_FIELD_NOT_AVAILABLE: order field "
+                    f"{field_name!r} is not produced by the timeWindow plan."
+                )
+            order_parts.append(f"{self._qi(order_column)} {direction_upper}")
+        return order_parts
+
+    @staticmethod
+    def _time_window_field_name(item: Any) -> Optional[str]:
+        if isinstance(item, str):
+            value = item.strip()
+            if value.startswith(("-", "+")):
+                value = value[1:].strip()
+            return value
+        if isinstance(item, dict):
+            return item.get("field") or item.get("fieldName") or item.get("column")
+        return getattr(item, "field", None)
+
+    @staticmethod
+    def _unique_fields(fields: List[str]) -> List[str]:
+        seen: set[str] = set()
+        result: List[str] = []
+        for field in fields:
+            if not isinstance(field, str) or not field:
+                continue
+            if field in seen:
+                continue
+            seen.add(field)
+            result.append(field)
+        return result
+
+    @staticmethod
+    def _indent_sql(sql: str) -> str:
+        return "\n".join(f"  {line}" for line in sql.splitlines())
 
     def _build_measure_select(self, measure: DbModelMeasureImpl) -> Dict[str, Any]:
         """Build SELECT expression for a measure."""
@@ -484,14 +2950,6 @@ class SemanticQueryService(SemanticServiceResolver):
             "select_expr": select_expr,
         }
 
-    # Regex for inline aggregate: "sum(fieldName) as alias" or "count_distinct(field)"
-    _INLINE_AGG_RE = re.compile(
-        r'^(sum|avg|count|min|max|count_distinct|countd|group_concat|'
-        r'stddev_pop|stddev_samp|var_pop|var_samp)\s*\(\s*([^)]+)\s*\)'
-        r'(?:\s+as\s+(\w+))?$',
-        re.IGNORECASE,
-    )
-
     def _parse_inline_expression(
         self,
         col_name: str,
@@ -502,77 +2960,648 @@ class SemanticQueryService(SemanticServiceResolver):
 
         Returns column info dict if parsed, None if not an inline expression.
         """
-        m = self._INLINE_AGG_RE.match(col_name.strip())
-        if not m:
+        parsed = parse_inline_aggregate(col_name)
+        if not parsed:
             return None
 
-        func_name = m.group(1).upper()
-        field_name = m.group(2).strip()
-        alias = m.group(3)
-
-        # Map function names
-        AGG_MAP = {
-            "COUNTD": "COUNT_DISTINCT",
-            "COUNT_DISTINCT": "COUNT_DISTINCT",
-        }
-        agg = AGG_MAP.get(func_name, func_name)
-
-        # Resolve the inner field
-        resolved = model.resolve_field(field_name)
-        if resolved:
-            sql_col = resolved["sql_expr"]
-            if resolved["join_def"] and ensure_join:
-                ensure_join(resolved["join_def"])
-            default_alias = alias or f"{func_name.lower()}_{field_name}"
-        else:
-            # Unknown field — use as raw column on fact table
-            sql_col = f"t.{field_name}"
-            default_alias = alias or f"{func_name.lower()}_{field_name}"
+        agg = parsed.aggregation
+        sql_col = self._resolve_expression_fields(
+            parsed.inner_expression,
+            model,
+            ensure_join,
+        )
 
         if agg == "COUNT_DISTINCT":
-            select_expr = f"COUNT(DISTINCT {sql_col}) AS {self._qi(default_alias)}"
+            select_expr = f"COUNT(DISTINCT {sql_col}) AS {self._qi(parsed.alias)}"
         else:
-            select_expr = f"{agg}({sql_col}) AS {self._qi(default_alias)}"
+            select_expr = f"{agg}({sql_col}) AS {self._qi(parsed.alias)}"
 
         return {
-            "name": default_alias,
+            "name": parsed.alias,
             "fieldName": col_name,
             "expression": sql_col,
             "aggregation": agg,
             "select_expr": select_expr,
         }
 
+    def _aggregate_calc_field_names(
+        self,
+        calc_field_defs: List[CalculatedFieldDef],
+        model: Optional[DbTableModelImpl] = None,
+        *,
+        grouped: bool = False,
+    ) -> set[str]:
+        names: set[str] = set()
+        for cf in calc_field_defs or []:
+            if (
+                cf.agg
+                or parse_inline_aggregate(str(cf.expression or ""))
+                or (model is not None and self._is_measure_formula(cf, model, grouped=grouped))
+            ):
+                if cf.name:
+                    names.add(cf.name)
+                if cf.alias:
+                    names.add(cf.alias)
+        return names
+
+    def _reject_window_calculated_field_slice(
+        self,
+        request: SemanticQueryRequest,
+        calc_field_defs: List[CalculatedFieldDef],
+    ) -> None:
+        """Reject same-request filters over window calculated-field aliases."""
+        if not calc_field_defs or not request.slice:
+            return
+
+        window_names = {
+            name
+            for cf in calc_field_defs
+            if cf.is_window_function()
+            for name in (cf.name, cf.alias)
+            if name
+        }
+        if not window_names:
+            return
+
+        matched = sorted(self._collect_condition_fields(request.slice) & window_names)
+        if not matched:
+            return
+
+        joined = ", ".join(repr(name) for name in matched)
+        raise ValueError(
+            "WINDOW_CALCULATED_FIELD_SLICE_NOT_SUPPORTED: query_model "
+            f"slice cannot reference window calculated field alias {joined} "
+            "from the same request. Return the window field and filter the "
+            "result rows, or use compose_script with a base dsl(...) window "
+            "calculatedFields query followed by a derived .query({slice:[...]}) "
+            "stage."
+        )
+
+    def _reject_post_aggregate_calculated_fields(
+        self,
+        request: SemanticQueryRequest,
+        calc_field_defs: List[CalculatedFieldDef],
+        selected_aggregate_aliases: set[str],
+    ) -> None:
+        """Reject aggregate-context calculated fields that need an outer stage.
+
+        Free-form calculatedFields still run in the current query layer. A
+        calculated field that references a selected aggregate alias requires a
+        post-aggregate outer relation stage; supported share-of-total cases
+        should use postAggregateCalculations or ratio_to_total(...) sugar.
+        """
+        if not calc_field_defs or not request.group_by:
+            return
+
+        for cf in calc_field_defs:
+            alias = cf.alias or cf.name
+            expression = str(cf.expression or "")
+            deps = extract_field_dependencies(expression) | set(extract_formula_fields(expression))
+            matched_aliases = sorted(deps & selected_aggregate_aliases)
+            if matched_aliases:
+                joined = ", ".join(repr(name) for name in matched_aliases)
+                raise ValueError(
+                    "POST_AGGREGATE_CALCULATED_FIELD_UNSUPPORTED: query_model "
+                    f"calculatedFields entry {alias!r} references selected "
+                    f"aggregate alias {joined} from the same grouped query. "
+                    "Free-form post-aggregate expressions are not supported "
+                    "in v1.6. For share-of-total metrics use "
+                    "postAggregateCalculations kind='ratioToTotal' or "
+                    "calculatedFields expression ratio_to_total(<aggregateAlias>); "
+                    "otherwise return grouped aggregate rows and compute the "
+                    "expression outside SQL."
+                )
+
+    _FORMULA_AGG_CALL_RE = re.compile(
+        r"\b(sum|avg|count|countd|count_distinct|min|max|stddev_pop|stddev_samp|var_pop|var_samp)\s*\(",
+        re.IGNORECASE,
+    )
+
+    def _formula_contains_aggregate_call(self, expression: str) -> bool:
+        return bool(self._FORMULA_AGG_CALL_RE.search(expression or ""))
+
+    def _is_measure_formula(
+        self,
+        cf: CalculatedFieldDef,
+        model: DbTableModelImpl,
+        *,
+        grouped: bool,
+    ) -> bool:
+        if cf.agg or cf.is_window_function():
+            return False
+        expression = str(cf.expression or "")
+        if not expression or self._formula_contains_aggregate_call(expression):
+            return False
+        for ref in extract_field_dependencies(expression):
+            resolved = model.resolve_field(ref, dialect_name=self._field_formula_dialect_name())
+            if resolved and resolved.get("is_measure") and resolved.get("aggregation"):
+                return True
+        return False
+
+    def _aggregate_measure_sql(self, aggregation: str, sql_expr: str) -> str:
+        agg = str(aggregation).upper()
+        if agg == "COUNT_DISTINCT":
+            return f"COUNT(DISTINCT {sql_expr})"
+        return f"{agg}({sql_expr})"
+
+    def _selected_aggregate_sql(
+        self,
+        columns_info: List[Dict[str, Any]],
+    ) -> Dict[str, str]:
+        result: Dict[str, str] = {}
+        for info in columns_info:
+            agg = info.get("aggregation")
+            if not agg:
+                continue
+            expr = info.get("expression")
+            alias = info.get("name")
+            if not expr or not alias:
+                continue
+            agg_upper = str(agg).upper()
+            if agg_upper == "COUNT_DISTINCT":
+                result[alias] = f"COUNT(DISTINCT {expr})"
+            else:
+                result[alias] = f"{agg_upper}({expr})"
+        return result
+
+    def _is_aggregate_condition_field(
+        self,
+        model: DbTableModelImpl,
+        field_name: str,
+        aggregate_calc_fields: set[str],
+    ) -> bool:
+        if field_name in aggregate_calc_fields:
+            return True
+        resolved = model.resolve_field(field_name, dialect_name=self._field_formula_dialect_name())
+        return bool(resolved and resolved.get("is_measure") and resolved.get("aggregation"))
+
+    def _reject_aggregate_conditions_in_slice(
+        self,
+        model: DbTableModelImpl,
+        items: List[Any],
+        aggregate_calc_fields: set[str],
+    ) -> None:
+        for item in items or []:
+            if not isinstance(item, dict):
+                continue
+            field = item.get("field") or item.get("column")
+            if isinstance(field, str) and self._is_aggregate_condition_field(
+                model, field, aggregate_calc_fields,
+            ):
+                raise ValueError(
+                    "AGGREGATE_MEASURE_IN_SLICE: field "
+                    f"{field!r} is an aggregate measure. Move this condition "
+                    "from slice to request.having, or filter by base fields "
+                    "before aggregation."
+                )
+            for key in ("conditions", "children", "filters", "$or", "$and", "or", "and"):
+                nested = item.get(key)
+                if isinstance(nested, list):
+                    self._reject_aggregate_conditions_in_slice(
+                        model, nested, aggregate_calc_fields,
+                    )
+
+    def _partition_slice_for_aggregate_lift(
+        self,
+        model: DbTableModelImpl,
+        items: List[Any],
+        aggregate_calc_fields: set[str],
+    ) -> Tuple[List[Any], List[Any]]:
+        row_filters: List[Any] = []
+        aggregate_filters: List[Any] = []
+        for item in items or []:
+            phase = self._classify_slice_condition_phase(
+                model,
+                item,
+                aggregate_calc_fields,
+            )
+            if phase == "aggregate":
+                aggregate_filters.append(item)
+            else:
+                row_filters.append(item)
+        return row_filters, aggregate_filters
+
+    def _classify_slice_condition_phase(
+        self,
+        model: DbTableModelImpl,
+        item: Any,
+        aggregate_calc_fields: set[str],
+    ) -> str:
+        if not isinstance(item, dict):
+            return "row"
+
+        for group_key in ("$or", "or", "$and", "and", "conditions", "children", "filters"):
+            nested = item.get(group_key)
+            if not isinstance(nested, list):
+                continue
+            phase: Optional[str] = None
+            for child in nested:
+                child_phase = self._classify_slice_condition_phase(
+                    model,
+                    child,
+                    aggregate_calc_fields,
+                )
+                if phase is None:
+                    phase = child_phase
+                elif phase != child_phase:
+                    raise ValueError(
+                        "MIXED_ROW_AND_AGGREGATE_SLICE: a single logical "
+                        "slice group cannot mix row-level fields and aggregate "
+                        "measures because it cannot be safely split between "
+                        "WHERE and HAVING. Keep row-level filters in slice and "
+                        "aggregate filters in having or separate top-level "
+                        "slice entries."
+                    )
+            return phase or "row"
+
+        field = item.get("field") or item.get("column")
+        if isinstance(field, str) and self._is_aggregate_condition_field(
+            model, field, aggregate_calc_fields,
+        ):
+            return "aggregate"
+        return "row"
+
+    def _partition_slice_for_post_aggregate(
+        self,
+        items: List[Any],
+        post_aggregate_fields: set[str],
+    ) -> Tuple[List[Any], List[Any]]:
+        inner_filters: List[Any] = []
+        post_filters: List[Any] = []
+        for item in items or []:
+            phase = self._classify_post_aggregate_slice_phase(item, post_aggregate_fields)
+            if phase == "post":
+                post_filters.append(item)
+            else:
+                inner_filters.append(item)
+        return inner_filters, post_filters
+
+    def _classify_post_aggregate_slice_phase(
+        self,
+        item: Any,
+        post_aggregate_fields: set[str],
+    ) -> str:
+        if not isinstance(item, dict):
+            return "inner"
+
+        for group_key in ("$or", "or", "$and", "and", "conditions", "children", "filters"):
+            nested = item.get(group_key)
+            if not isinstance(nested, list):
+                continue
+            phase: Optional[str] = None
+            for child in nested:
+                child_phase = self._classify_post_aggregate_slice_phase(
+                    child,
+                    post_aggregate_fields,
+                )
+                if phase is None:
+                    phase = child_phase
+                elif phase != child_phase:
+                    raise ValueError(
+                        "MIXED_INNER_AND_POST_AGGREGATE_SLICE: a single "
+                        "logical slice group cannot mix base/aggregate fields "
+                        "and postAggregateCalculations aliases because it "
+                        "cannot be safely split across query stages."
+                    )
+            return phase or "inner"
+
+        field = item.get("field") or item.get("column")
+        if isinstance(field, str) and field in post_aggregate_fields:
+            return "post"
+        return "inner"
+
+    def _build_outer_alias_filter_condition(
+        self,
+        item: Dict[str, Any],
+        alias_refs: Dict[str, str],
+    ) -> Tuple[str, List[Any]]:
+        if not isinstance(item, dict):
+            raise ValueError(
+                "UNSUPPORTED_POST_AGGREGATE_SLICE: slice entries must be objects."
+            )
+
+        for group_key, joiner in (("$or", " OR "), ("or", " OR "), ("$and", " AND "), ("and", " AND ")):
+            nested = item.get(group_key)
+            if isinstance(nested, list):
+                fragments: List[str] = []
+                params: List[Any] = []
+                for child in nested:
+                    fragment, child_params = self._build_outer_alias_filter_condition(
+                        child,
+                        alias_refs,
+                    )
+                    if fragment:
+                        fragments.append(fragment)
+                        params.extend(child_params)
+                if not fragments:
+                    return "", []
+                joined = joiner.join(fragments)
+                if len(fragments) > 1:
+                    joined = f"({joined})"
+                return joined, params
+
+        column = item.get("field") or item.get("column")
+        operator = item.get("op") or item.get("operator") or "="
+        value = item.get("value")
+        if not column:
+            raise ValueError(
+                "UNSUPPORTED_POST_AGGREGATE_SLICE: slice leaf requires field/op/value."
+            )
+        col_expr = alias_refs.get(column)
+        if not col_expr:
+            raise ValueError(
+                "POST_AGGREGATE_SLICE_FIELD_NOT_SELECTED: slice field "
+                f"{column!r} is not available in the post-aggregate stage."
+            )
+
+        condition_params: List[Any] = []
+        if isinstance(value, dict) and "$field" in value:
+            ref_field = value["$field"]
+            ref_expr = alias_refs.get(ref_field)
+            if not ref_expr:
+                raise ValueError(
+                    "POST_AGGREGATE_SLICE_FIELD_NOT_SELECTED: slice field "
+                    f"{ref_field!r} is not available in the post-aggregate stage."
+                )
+            op_map = {
+                "=": "=", "eq": "=", "!=": "<>", "<>": "<>", "neq": "<>",
+                ">": ">", "gt": ">", ">=": ">=", "gte": ">=",
+                "<": "<", "lt": "<", "<=": "<=", "lte": "<=",
+                "===": "=", "force_eq": "=",
+            }
+            sql_op = op_map.get(operator, operator)
+            return f"{col_expr} {sql_op} {ref_expr}", []
+
+        condition = self._formula_registry.build_condition(
+            col_expr,
+            operator,
+            value,
+            condition_params,
+        )
+        if not condition:
+            raise ValueError(
+                "UNSUPPORTED_POST_AGGREGATE_SLICE: unsupported slice operator "
+                f"{operator!r}."
+            )
+        return condition, condition_params
+
+    def _build_having_condition(
+        self,
+        model: DbTableModelImpl,
+        item: Dict[str, Any],
+        ensure_join=None,
+        *,
+        compiled_calcs: Optional[Dict[str, str]] = None,
+        compiled_calcs_params: Optional[Dict[str, List[Any]]] = None,
+        aggregate_calc_fields: Optional[set[str]] = None,
+        selected_aggregate_sql: Optional[Dict[str, str]] = None,
+    ) -> Tuple[str, List[Any]]:
+        if not isinstance(item, dict):
+            raise ValueError(
+                "UNSUPPORTED_HAVING_CONDITION: having entries must be objects."
+            )
+
+        for group_key, joiner in (("$or", " OR "), ("or", " OR "), ("$and", " AND "), ("and", " AND ")):
+            nested = item.get(group_key)
+            if isinstance(nested, list):
+                fragments: List[str] = []
+                params: List[Any] = []
+                for child in nested:
+                    fragment, child_params = self._build_having_condition(
+                        model,
+                        child,
+                        ensure_join,
+                        compiled_calcs=compiled_calcs,
+                        compiled_calcs_params=compiled_calcs_params,
+                        aggregate_calc_fields=aggregate_calc_fields,
+                        selected_aggregate_sql=selected_aggregate_sql,
+                    )
+                    if fragment:
+                        fragments.append(fragment)
+                        params.extend(child_params)
+                if not fragments:
+                    return "", []
+                joined = joiner.join(fragments)
+                if len(fragments) > 1:
+                    joined = f"({joined})"
+                return joined, params
+
+        column = item.get("field") or item.get("column")
+        operator = item.get("op") or item.get("operator") or "="
+        value = item.get("value")
+        if not column:
+            raise ValueError(
+                "UNSUPPORTED_HAVING_CONDITION: having leaf requires field/op/value."
+            )
+        # Check for $field value reference
+        is_field_ref = False
+        ref_field = None
+        if isinstance(value, dict) and "$field" in value:
+            is_field_ref = True
+            ref_field = value["$field"]
+
+        aggregate_calc_fields = aggregate_calc_fields or set()
+        selected_aggregate_sql = selected_aggregate_sql or {}
+        params: List[Any] = []
+
+        if compiled_calcs and column in compiled_calcs:
+            if column not in aggregate_calc_fields:
+                raise ValueError(
+                    "HAVING_REQUIRES_AGGREGATE_FIELD: having field "
+                    f"{column!r} is not an aggregate calculated field."
+                )
+            col_expr = f"({compiled_calcs[column]})"
+            params.extend(list((compiled_calcs_params or {}).get(column, [])))
+        elif column in selected_aggregate_sql:
+            col_expr = selected_aggregate_sql[column]
+        else:
+            resolved = model.resolve_field(column, dialect_name=self._field_formula_dialect_name())
+            if not resolved or not resolved.get("is_measure") or not resolved.get("aggregation"):
+                raise ValueError(
+                    "HAVING_REQUIRES_AGGREGATE_FIELD: having field "
+                    f"{column!r} must be a predefined aggregate measure or "
+                    "aggregate alias."
+                )
+            if resolved["join_def"] and ensure_join:
+                ensure_join(resolved["join_def"])
+            agg = str(resolved["aggregation"]).upper()
+            if agg == "COUNT_DISTINCT":
+                col_expr = f"COUNT(DISTINCT {resolved['sql_expr']})"
+            else:
+                col_expr = f"{agg}({resolved['sql_expr']})"
+
+        condition_params: List[Any] = []
+        if is_field_ref:
+            if compiled_calcs and ref_field in compiled_calcs:
+                if ref_field not in aggregate_calc_fields:
+                    raise ValueError(f"HAVING_REQUIRES_AGGREGATE_FIELD: having field {ref_field!r} is not an aggregate calculated field.")
+                ref_expr = f"({compiled_calcs[ref_field]})"
+                condition_params.extend(list((compiled_calcs_params or {}).get(ref_field, [])))
+            elif ref_field in selected_aggregate_sql:
+                ref_expr = selected_aggregate_sql[ref_field]
+            else:
+                ref_resolved = model.resolve_field(ref_field, dialect_name=self._field_formula_dialect_name())
+                if not ref_resolved or not ref_resolved.get("is_measure") or not ref_resolved.get("aggregation"):
+                    raise ValueError(f"HAVING_REQUIRES_AGGREGATE_FIELD: having field {ref_field!r} must be a predefined aggregate measure or aggregate alias.")
+                if ref_resolved["join_def"] and ensure_join:
+                    ensure_join(ref_resolved["join_def"])
+                agg_ref = str(ref_resolved["aggregation"]).upper()
+                if agg_ref == "COUNT_DISTINCT":
+                    ref_expr = f"COUNT(DISTINCT {ref_resolved['sql_expr']})"
+                else:
+                    ref_expr = f"{agg_ref}({ref_resolved['sql_expr']})"
+
+            op_map = {"=": "=", "eq": "=", "!=": "<>", "<>": "<>", "neq": "<>",
+                       ">": ">", "gt": ">", ">=": ">=", "gte": ">=",
+                       "<": "<", "lt": "<", "<=": "<=", "lte": "<=",
+                       "===": "=", "force_eq": "="}
+            sql_op = op_map.get(operator, operator)
+            condition = f"{col_expr} {sql_op} {ref_expr}"
+        else:
+            condition = self._formula_registry.build_condition(
+                col_expr, operator, value, condition_params,
+            )
+            if not condition:
+                raise ValueError(
+                    "UNSUPPORTED_HAVING_CONDITION: unsupported HAVING operator "
+                    f"{operator!r}."
+                )
+        return condition, params + condition_params
+
+    def _build_selected_order_aliases(
+        self,
+        columns_info: List[Dict[str, Any]],
+    ) -> Dict[str, str]:
+        """Map selected column keys to their quoted SQL aliases for ORDER BY."""
+        alias_map: Dict[str, str] = {}
+
+        for info in columns_info:
+            alias = info.get("name")
+            if not alias:
+                continue
+
+            quoted_alias = self._qi(alias)
+            alias_map[alias] = quoted_alias
+
+            field_name = info.get("fieldName")
+            if field_name:
+                alias_map[field_name] = quoted_alias
+
+        return alias_map
+
     # ==================== Calculated Fields & Window Functions ====================
 
-    # Allowed SQL functions whitelist (aligned with Java AllowedFunctions.java).
-    # Only these functions are permitted in calculated fields and expressions.
-    # Any function call not in this set will be rejected to prevent SQL injection.
-    _ALLOWED_FUNCTIONS = frozenset({
-        # Aggregate (7)
-        'SUM', 'AVG', 'COUNT', 'MIN', 'MAX', 'GROUP_CONCAT',
-        'COUNT_DISTINCT',
-        # Statistical aggregate (4)
-        'STDDEV_POP', 'STDDEV_SAMP', 'VAR_POP', 'VAR_SAMP',
-        # Window (10)
-        'ROW_NUMBER', 'RANK', 'DENSE_RANK', 'NTILE',
-        'LAG', 'LEAD', 'FIRST_VALUE', 'LAST_VALUE',
-        'CUME_DIST', 'PERCENT_RANK',
-        # String (12)
-        'CONCAT', 'CONCAT_WS', 'SUBSTRING', 'SUBSTR', 'LEFT', 'RIGHT',
-        'LTRIM', 'RTRIM', 'LPAD', 'RPAD', 'REPLACE', 'LOCATE',
-        'CHAR_LENGTH', 'INSTR', 'UPPER', 'LOWER', 'TRIM',
-        # Numeric (7)
-        'ABS', 'ROUND', 'FLOOR', 'CEIL', 'CEILING', 'MOD', 'POWER', 'SQRT',
-        # Date (12)
-        'YEAR', 'MONTH', 'DAY', 'HOUR', 'MINUTE', 'SECOND',
-        'DATE_FORMAT', 'STR_TO_DATE', 'DATE_ADD', 'DATE_SUB',
-        'DATEDIFF', 'TIMESTAMPDIFF', 'EXTRACT',
-        'TIME', 'CURRENT_TIME', 'CURRENT_TIMESTAMP',
-        # Conditional / type (8)
-        'COALESCE', 'IFNULL', 'NVL', 'NULLIF', 'IF', 'CAST', 'CONVERT', 'ISNULL',
+    # Function arity table — the **source of truth** for both arity
+    # validation and the allow-list.  Maps UPPER-cased function name to
+    # ``(min_args, max_args_or_None_for_unlimited)``.
+    #
+    # Functions with SQL-keyword-delimited internal syntax
+    # (``CAST(x AS t)``, ``EXTRACT(field FROM src)``, ``CONVERT(...)``)
+    # are listed separately in ``_KEYWORD_DELIMITED_FUNCTIONS``: they
+    # bypass the arity check because comma-split arity doesn't reflect
+    # semantic arity, and they bypass dialect routing because their
+    # literal SQL form is already dialect-agnostic.
+    #
+    # Aligned with Java ``AllowedFunctions.java``.
+    _FUNCTION_ARITY: dict = {
+        # Aggregate
+        "SUM": (1, 1),
+        "AVG": (1, 1),
+        "COUNT": (1, 1),
+        "MIN": (1, 1),
+        "MAX": (1, 1),
+        "GROUP_CONCAT": (1, None),
+        "COUNT_DISTINCT": (1, 1),
+        "STDDEV_POP": (1, 1),
+        "STDDEV_SAMP": (1, 1),
+        "VAR_POP": (1, 1),
+        "VAR_SAMP": (1, 1),
+        # Window (no positional args; OVER clause handled separately)
+        "ROW_NUMBER": (0, 0),
+        "RANK": (0, 0),
+        "DENSE_RANK": (0, 0),
+        "NTILE": (1, 1),
+        "CUME_DIST": (0, 0),
+        "PERCENT_RANK": (0, 0),
+        "LAG": (1, 3),
+        "LEAD": (1, 3),
+        "FIRST_VALUE": (1, 1),
+        "LAST_VALUE": (1, 1),
+        # String
+        "CONCAT": (1, None),
+        "CONCAT_WS": (2, None),
+        "SUBSTRING": (2, 3),
+        "SUBSTR": (2, 3),
+        "LEFT": (2, 2),
+        "RIGHT": (2, 2),
+        "LTRIM": (1, 1),
+        "RTRIM": (1, 1),
+        "LPAD": (3, 3),
+        "RPAD": (3, 3),
+        "REPLACE": (3, 3),
+        "LOCATE": (2, 3),
+        "INSTR": (2, 2),
+        "CHAR_LENGTH": (1, 1),
+        "UPPER": (1, 1),
+        "LOWER": (1, 1),
+        "TRIM": (1, 1),
+        # Numeric
+        "ABS": (1, 1),
+        "ROUND": (1, 2),
+        "FLOOR": (1, 1),
+        "CEIL": (1, 1),
+        "CEILING": (1, 1),
+        "MOD": (2, 2),
+        "POWER": (2, 2),
+        "POW": (2, 2),
+        "SQRT": (1, 1),
+        "TRUNC": (1, 2),
+        # Date
+        "YEAR": (1, 1),
+        "MONTH": (1, 1),
+        "DAY": (1, 1),
+        "HOUR": (1, 1),
+        "MINUTE": (1, 1),
+        "SECOND": (1, 1),
+        "DATE_FORMAT": (2, 2),
+        "STR_TO_DATE": (2, 2),
+        "DATE_ADD": (2, 2),
+        "DATE_SUB": (2, 2),
+        "DATEDIFF": (2, 2),
+        "TIMESTAMPDIFF": (3, 3),
+        "TIME": (0, 1),
+        "CURRENT_TIME": (0, 0),
+        "CURRENT_TIMESTAMP": (0, 0),
+        # Conditional / type
+        "COALESCE": (1, None),
+        "IFNULL": (2, 2),
+        "NVL": (2, 2),
+        "NULLIF": (2, 2),
+        "IF": (3, 3),
+        "ISNULL": (1, 2),  # MySQL ISNULL(x) / SQL Server ISNULL(x, y)
         # Misc
-        'DISTINCT',
+        "DISTINCT": (1, 1),
+        # Intentionally excluded: CAST, CONVERT, EXTRACT
+        # (comma-split arity does not match semantic arity because of
+        #  internal ``AS`` / ``FROM`` keywords)
+    }
+
+    # Functions whose internal syntax uses SQL keywords (not commas) to
+    # separate arguments.  ``_render_expression`` must NOT run its
+    # arity check on these, and must NOT route them through Dialect
+    # translation — the user's literal text is already valid SQL.
+    _KEYWORD_DELIMITED_FUNCTIONS: frozenset = frozenset({
+        "CAST",       # CAST(x AS type)
+        "CONVERT",    # MySQL CONVERT(x, type) vs SQL Server CONVERT(type, x [, style])
+        "EXTRACT",    # EXTRACT(field FROM src)
     })
+
+    # Allow-list = everything with a declared arity plus the keyword-
+    # delimited functions.  Deriving this avoids the pre-v1.5 sync
+    # burden between two separate frozensets.  Note: ``TRUNCATE`` is
+    # deliberately excluded (DDL ``TRUNCATE TABLE`` collision); users
+    # should write ``TRUNC(x, d)`` and let MySQL dialect rename it.
+    _ALLOWED_FUNCTIONS: frozenset = frozenset(_FUNCTION_ARITY.keys()) | _KEYWORD_DELIMITED_FUNCTIONS
 
     @classmethod
     def validate_function(cls, func_name: str) -> bool:
@@ -608,25 +3637,338 @@ class SemanticQueryService(SemanticServiceResolver):
         re.IGNORECASE,
     )
 
-    def _resolve_single_field(self, field_name: str, model: DbTableModelImpl, ensure_join=None) -> str:
+    def _resolve_single_field(
+        self,
+        field_name: str,
+        model: DbTableModelImpl,
+        ensure_join=None,
+        compiled_calcs: Optional[Dict[str, str]] = None,
+        aggregate_measure_refs: bool = False,
+    ) -> str:
         """Resolve a semantic field name to SQL column expression.
 
-        Tries model.resolve_field() first, then dimension/measure lookup, then returns as-is.
+        Lookup order:
+        1. ``compiled_calcs`` — pre-rendered calc-field SQL fragments from
+           earlier in the same query.  Supports calc-to-calc chaining,
+           slice/orderBy/groupBy referencing calc fields, etc.  The
+           fragment is wrapped in parentheses to protect operator
+           precedence when embedded into a larger expression.
+        2. ``model.resolve_field`` — base columns / joined dimensions
+        3. ``model.get_dimension`` / ``get_measure`` fallback
+        4. Return the raw name (may yield invalid SQL downstream — this
+           preserves pre-v1.5 behaviour for unknown identifiers).
         """
-        resolved = model.resolve_field(field_name)
+        # v1.5 Phase 2: transitive calc-field reference
+        if compiled_calcs and field_name in compiled_calcs:
+            return f"({compiled_calcs[field_name]})"
+
+        resolved = model.resolve_field(field_name, dialect_name=self._field_formula_dialect_name())
         if resolved:
             if resolved["join_def"] and ensure_join:
                 ensure_join(resolved["join_def"])
+            if (
+                aggregate_measure_refs
+                and resolved.get("is_measure")
+                and resolved.get("aggregation")
+            ):
+                return self._aggregate_measure_sql(
+                    resolved["aggregation"],
+                    resolved["sql_expr"],
+                )
             return resolved["sql_expr"]
         dim = model.get_dimension(field_name)
         if dim:
-            return f"t.{dim.column}"
+            alias = model.get_table_alias_for_model(model.get_field_model_name(field_name))
+            return f"{alias}.{dim.column}"
         measure = model.get_measure(field_name)
         if measure:
-            return f"t.{measure.column or measure.name}"
+            alias = model.get_table_alias_for_model(model.get_field_model_name(field_name))
+            sql_expr = f"{alias}.{measure.column or measure.name}"
+            if aggregate_measure_refs and measure.aggregation:
+                return self._aggregate_measure_sql(str(measure.aggregation), sql_expr)
+            return sql_expr
         return field_name
 
-    def _resolve_expression_fields(self, expression: str, model: DbTableModelImpl, ensure_join=None) -> str:
+    def _validate_window_order_by_field(
+        self,
+        field_name: str,
+        calc_field_name: str,
+        model: Any,
+        compiled_calcs: Optional[Dict[str, str]],
+    ) -> None:
+        """Fail-closed guard for ``calculatedFields.windowOrderBy`` field references.
+
+        A window ``ORDER BY`` field must resolve to a real QM column (measure,
+        dimension, or dimension property) or to a *previously compiled* scalar
+        calc field available in ``compiled_calcs``.  Inline aggregate aliases
+        from a sibling ``calculatedFields`` entry and raw SQL expressions cannot
+        be used — they produce identifiers that PostgreSQL cannot resolve,
+        causing ``column \"totalsales\" does not exist`` with a physical-column
+        HINT that leaks internal schema details.
+
+        Raises
+        ------
+        ValueError
+            With prefix ``COMPOSE_WINDOW_ORDER_BY_UNRESOLVABLE:`` and a message
+            that names the offending field without leaking physical-table SQL.
+        """
+        # Guard 1: raw SQL expression (contains parenthesis) — never a field ref.
+        if "(" in field_name:
+            raise ValueError(
+                f"COMPOSE_WINDOW_ORDER_BY_UNRESOLVABLE: "
+                f"calculatedFields[{calc_field_name!r}].windowOrderBy field "
+                f"{field_name!r} looks like a raw SQL expression (contains '('). "
+                f"Only QM field names (measures, dimensions, dimension properties) "
+                f"or previously compiled calc-field names are valid here. "
+                f"Use a base model measure field (e.g. 'salesAmount') instead."
+            )
+
+        # Guard 2: compiled_calcs entry (previous scalar calc) — allow.
+        if compiled_calcs and field_name in compiled_calcs:
+            return
+
+        # Guard 3: model-resolvable field (measure / dimension / property) — allow.
+        if model.resolve_field(field_name, dialect_name=self._field_formula_dialect_name()) is not None:
+            return
+        if model.get_dimension(field_name) is not None:
+            return
+        if model.get_measure(field_name) is not None:
+            return
+
+        # Guard 4: unresolvable — reject with a clear diagnostic.
+        raise ValueError(
+            f"COMPOSE_WINDOW_ORDER_BY_UNRESOLVABLE: "
+            f"calculatedFields[{calc_field_name!r}].windowOrderBy field "
+            f"{field_name!r} cannot be resolved as a QM measure, dimension, "
+            f"or prior calc-field name. "
+            f"If {field_name!r} is an alias defined by another calculatedField "
+            f"in this same query, it is not available in the OVER clause at this "
+            f"stage. Use a base model measure field or wrap the aggregation in a "
+            f"preceding query stage before applying the window function."
+        )
+
+    @staticmethod
+    def _normalize_string_literal_for_sql(raw: str) -> str:
+        """Rewrite a DSL string literal as a SQL-standard single-quoted literal.
+
+        The DSL permits both ``'...'`` and ``"..."`` string literals. The
+        inline-expression scanner (``skip_string_literal``) treats ``\\`` as
+        an escape for the following character. SQL (Postgres / MySQL /
+        SQLite with standard settings) requires string literals to be wrapped
+        with single quotes; emitting ``"posted"`` verbatim causes Postgres to
+        interpret it as an identifier and fail with
+        ``column "posted" does not exist`` (BUG-003 v1.4).
+
+        This helper:
+          * strips the outer opening/closing quote;
+          * honors ``\\`` escapes consistent with ``skip_string_literal`` so
+            ``"a\\"b"`` and ``'a\\'b'`` decode to the logical value;
+          * doubles any embedded single quote per SQL standard; and
+          * re-wraps with single quotes.
+
+        Non-quoted input is returned unchanged as a defensive fallback.
+        """
+        if len(raw) < 2 or raw[0] not in ("'", '"'):
+            return raw
+        quote = raw[0]
+        inner = raw[1:-1] if len(raw) >= 2 and raw[-1] == quote else raw[1:]
+
+        decoded: List[str] = []
+        j = 0
+        n = len(inner)
+        while j < n:
+            c = inner[j]
+            if c == "\\" and j + 1 < n:
+                decoded.append(inner[j + 1])
+                j += 2
+            else:
+                decoded.append(c)
+                j += 1
+        value = "".join(decoded)
+        return "'" + value.replace("'", "''") + "'"
+
+    def _validate_function_arity(
+        self, func_name: str, actual: int, expression: str
+    ) -> None:
+        """Validate that ``actual`` arg count falls in the declared arity.
+
+        Raises ``ValueError`` with a friendly message if arity is wrong.
+        Silently accepts any arity for functions NOT in
+        ``_FUNCTION_ARITY`` (SQL keywords like AND/OR/IS that happen to
+        be followed by ``(`` would not reach this point anyway because
+        they are not in ``_ALLOWED_FUNCTIONS``).
+        """
+        arity = self._FUNCTION_ARITY.get(func_name)
+        if arity is None:
+            return
+        min_args, max_args = arity
+        if actual < min_args or (max_args is not None and actual > max_args):
+            if max_args is None:
+                expected = f"{min_args} or more"
+            elif min_args == max_args:
+                expected = f"exactly {min_args}"
+            else:
+                expected = f"{min_args} to {max_args}"
+            arg_word = "argument" if actual == 1 else "arguments"
+            raise ValueError(
+                f"Function '{func_name}' expects {expected} arguments, "
+                f"got {actual} {arg_word} in: {expression}"
+            )
+
+    def _emit_function_call(self, func_name: str, rendered_args: List[str]) -> str:
+        """Emit a SQL function call, routing through the dialect if present.
+
+        Delegates to ``FDialect.translate_function`` which internally does
+        the ``build_function_call`` → rename-table cascade (see
+        ``foggy.dataset.dialects.base.FDialect``).
+
+        Keyword-delimited functions (CAST/CONVERT/EXTRACT) always bypass
+        dialect routing: their internal ``AS``/``FROM`` syntax means the
+        comma-joined rendered args are already the literal SQL source.
+        """
+        if func_name in self._KEYWORD_DELIMITED_FUNCTIONS:
+            return f"{func_name}({', '.join(rendered_args)})"
+
+        if self._dialect is not None:
+            try:
+                sql = self._dialect.translate_function(func_name, rendered_args)
+            except (AttributeError, TypeError, ValueError):
+                sql = None
+            if sql:
+                return sql
+
+        return f"{func_name}({', '.join(rendered_args)})"
+
+    def _render_expression(
+        self,
+        expression: str,
+        model: DbTableModelImpl,
+        ensure_join=None,
+        compiled_calcs: Optional[Dict[str, str]] = None,
+    ) -> str:
+        """Render an expression to SQL, lowering IF(...) to CASE WHEN recursively.
+
+        ``compiled_calcs`` (v1.5 Phase 2) lets this pass resolve
+        references to previously-compiled calculated fields.  Threaded
+        through every recursive ``_render_expression`` and
+        ``_resolve_single_field`` call so that nested IF / function
+        arguments also see the calc registry.
+
+        v1.5 Phase 3 / Stage 6 opt-in: when
+        ``self._use_ast_expression_compiler`` is True, first try compiling
+        via the fsscript AST visitor (``render_with_ast``).  Stage 6 made
+        ``IS NULL``, ``BETWEEN``, ``LIKE``, and ``CAST ... AS`` native AST
+        forms.  The method still falls through to the character-level
+        tokenizer on parse error or unsupported-node error so legacy SQL
+        constructs such as ``EXTRACT(YEAR FROM ...)`` keep compiling.
+        """
+        if self._use_ast_expression_compiler:
+            try:
+                return render_with_ast(
+                    expression,
+                    service=self,
+                    model=model,
+                    ensure_join=ensure_join,
+                    compiled_calcs=compiled_calcs,
+                )
+            except AstCompileError:
+                # Fall through to the char-level tokenizer for constructs
+                # the AST visitor can't translate (e.g. `IS NULL`).
+                pass
+        result: List[str] = []
+        i = 0
+        length = len(expression)
+        while i < length:
+            ch = expression[i]
+            if ch in ("'", '"'):
+                end = skip_string_literal(expression, i)
+                result.append(self._normalize_string_literal_for_sql(expression[i:end]))
+                i = end
+                continue
+            if ch == "&" and i + 1 < length and expression[i + 1] == "&":
+                result.append(" AND ")
+                i += 2
+                continue
+            if ch == "|" and i + 1 < length and expression[i + 1] == "|":
+                result.append(" OR ")
+                i += 2
+                continue
+            if ch == "=" and i + 1 < length and expression[i + 1] == "=":
+                result.append(" = ")
+                i += 2
+                continue
+            if ch == "[":
+                result.append("(")
+                i += 1
+                continue
+            if ch == "]":
+                result.append(")")
+                i += 1
+                continue
+            if ch.isalpha() or ch == "_":
+                start = i
+                i += 1
+                while i < length and (expression[i].isalnum() or expression[i] in ("_", "$")):
+                    i += 1
+                token = expression[start:i]
+                j = i
+                while j < length and expression[j].isspace():
+                    j += 1
+                if j < length and expression[j] == "(":
+                    close = find_matching_paren(expression, j)
+                    if close < 0:
+                        raise ValueError(f"Unclosed function call in expression: {expression}")
+                    func_name = token.upper()
+                    if func_name not in self._ALLOWED_FUNCTIONS and func_name not in self._SQL_KEYWORDS:
+                        raise ValueError(
+                            f"Function '{token}' is not in the allowed function whitelist. "
+                            f"Allowed functions: {sorted(self._ALLOWED_FUNCTIONS)}"
+                        )
+                    args = split_top_level_commas(expression[j + 1:close])
+
+                    # Arity validation — skipped for keyword-delimited
+                    # functions whose comma-split count is not the same
+                    # as their semantic argument count.
+                    if func_name not in self._KEYWORD_DELIMITED_FUNCTIONS:
+                        self._validate_function_arity(func_name, len(args), expression)
+
+                    if func_name == "IF":
+                        # IF(cond, then, else) → CASE WHEN cond THEN then ELSE else END
+                        # Arity already validated above.
+                        cond_sql = self._render_expression(args[0], model, ensure_join, compiled_calcs).strip()
+                        then_sql = self._render_expression(args[1], model, ensure_join, compiled_calcs).strip()
+                        else_sql = self._render_expression(args[2], model, ensure_join, compiled_calcs).strip()
+                        result.append(
+                            f"CASE WHEN {cond_sql} THEN {then_sql} ELSE {else_sql} END"
+                        )
+                    else:
+                        rendered_args = [
+                            self._render_expression(arg, model, ensure_join, compiled_calcs).strip()
+                            for arg in args
+                        ]
+                        result.append(
+                            self._emit_function_call(func_name, rendered_args)
+                        )
+                    i = close + 1
+                    continue
+                if token.upper() in self._SQL_KEYWORDS:
+                    result.append(token)
+                else:
+                    result.append(
+                        self._resolve_single_field(token, model, ensure_join, compiled_calcs)
+                    )
+                continue
+            result.append(ch)
+            i += 1
+        return "".join(result)
+
+    def _resolve_expression_fields(
+        self,
+        expression: str,
+        model: DbTableModelImpl,
+        ensure_join=None,
+        compiled_calcs: Optional[Dict[str, str]] = None,
+    ) -> str:
         """Replace semantic field names in an expression with SQL column references.
 
         Handles:
@@ -634,61 +3976,120 @@ class SemanticQueryService(SemanticServiceResolver):
         - Function calls: LAG(salesAmount, 1) → LAG(t.sales_amount, 1)
         - Arithmetic: salesAmount - discountAmount → t.sales_amount - t.discount_amount
         - Dimension refs: product$categoryName → dp.category_name (with auto-JOIN)
+        - v1.5 Phase 2: calc-field references resolved via ``compiled_calcs``
         """
         stripped = expression.strip()
 
         # Pure window functions (no arguments): return as-is
         if self._PURE_WINDOW_RE.match(stripped):
             return stripped
-
-        keywords = self._SQL_KEYWORDS
-        allowed_funcs = self._ALLOWED_FUNCTIONS
-
-        # Validate function calls in expression against whitelist
-        func_calls = re.findall(r'\b(\w+)\s*\(', expression)
-        for func_name in func_calls:
-            if func_name.upper() not in allowed_funcs and func_name.upper() not in keywords:
-                raise ValueError(
-                    f"Function '{func_name}' is not in the allowed function whitelist. "
-                    f"Allowed functions: {sorted(allowed_funcs)}"
-                )
-
-        def replace_field(match: re.Match) -> str:
-            token = match.group(0)
-            if token.upper() in keywords:
-                return token
-            # Try numeric literal (don't resolve)
-            if token.isdigit():
-                return token
-            resolved = model.resolve_field(token)
-            if resolved:
-                if resolved["join_def"] and ensure_join:
-                    ensure_join(resolved["join_def"])
-                return resolved["sql_expr"]
-            dim = model.get_dimension(token)
-            if dim:
-                return f"t.{dim.column}"
-            measure = model.get_measure(token)
-            if measure:
-                return f"t.{measure.column or measure.name}"
-            return token
-
-        return re.sub(r'\b(\w+\$\w+|\w+)\b', replace_field, expression)
+        return self._render_expression(expression, model, ensure_join, compiled_calcs)
 
     def _build_calculated_field_sql(
         self,
         cf: CalculatedFieldDef,
         model: DbTableModelImpl,
         ensure_join=None,
-    ) -> str:
+        compiled_calcs: Optional[Dict[str, str]] = None,
+        compiled_calcs_params: Optional[Dict[str, List[Any]]] = None,
+        calculate_context: Optional[CalculateQueryContext] = None,
+        aggregate_measure_formula: bool = False,
+    ) -> Tuple[str, List[Any]]:
         """Build SQL expression for a calculated field, including OVER() for window functions.
 
+        v1.4 M4 Step 4.1:
+        - Returns ``(sql_fragment, bind_params)``: the final SELECT-ready SQL
+          and the positional ``?`` parameters produced by the compiler.
+        - Default path compiles ``cf.expression`` through
+          :class:`FormulaCompiler`, which runs AST white-list validation and
+          parameterises every literal.  This closes the "未闸门字符串拼接"
+          risk in the legacy ``_resolve_expression_fields`` path (see REQ
+          §6.1).
+        - Set env ``FOGGY_FORMULA_LEGACY_PASSTHROUGH=true`` to fall back to
+          the pre-v1.4 character-level resolver for staged rollout /
+          hotfix rollback.  The legacy path is retained at most one minor
+          version; new tests should cover the default path.
+
         Flow:
-        1. Resolve semantic field names in expression → SQL column names
-        2. If agg specified (non-window): wrap as AGG(expr)
-        3. If window function: wrap as expr OVER (PARTITION BY ... ORDER BY ... frame)
+        1. Compile ``cf.expression`` → SQL fragment + bind_params (or run
+           legacy character-level substitution under the env flag).
+        2. Register the **pre-wrap** fragment into ``compiled_calcs`` under
+           ``cf.name`` so later calcs / slices / orderBy can reference this
+           calc by name (see ``_resolve_single_field``).  When the compiler
+           produced bind_params, also stash them under the same key in
+           ``compiled_calcs_params`` so call sites inlining the fragment
+           can forward the params to the builder.
+        3. If agg specified (non-window): wrap as AGG(expr).
+        4. If window function: wrap as expr OVER (PARTITION BY ... ORDER BY ... frame).
         """
-        base_sql = self._resolve_expression_fields(cf.expression, model, ensure_join)
+        base_params: List[Any] = []
+
+        # Four routing paths:
+        # 1. ``FOGGY_FORMULA_LEGACY_PASSTHROUGH=true``: character-level
+        #    substitution (legacy, no AST gate) — staged rollout only.
+        # 2. ``self._use_ast_expression_compiler=True``: v1.5 Phase 3 AST
+        #    visitor preserved as-is — supports method calls / ternary /
+        #    null-coalescing that FormulaCompiler intentionally rejects.
+        #    FormulaCompiler scope is aggregation + arithmetic + allowlist
+        #    functions; it does NOT cover Phase 3 sugar.
+        # 3. ``cf.is_window_function()``: legacy ``_resolve_expression_fields``
+        #    is retained for window-function calcs.  Spec v1 scope is
+        #    aggregation + arithmetic — window functions (RANK / ROW_NUMBER /
+        #    LAG) live outside FormulaCompiler and are wrapped by OVER()
+        #    downstream; routing them through the compiler would trip the
+        #    allowlist.  See parity.md §4 (aggregation boundary).
+        # 4. Default: FormulaCompiler with AST white-list + bind_params,
+        #    closing the "未闸门字符串拼接" risk (REQ §6.1).
+        if (
+            self._formula_legacy_passthrough()
+            or self._use_ast_expression_compiler
+            or cf.is_window_function()
+        ):
+            base_sql = self._resolve_expression_fields(
+                cf.expression, model, ensure_join, compiled_calcs
+            )
+        else:
+            def _resolver(name: str):
+                sql = self._resolve_single_field(
+                    name,
+                    model,
+                    ensure_join,
+                    compiled_calcs,
+                    aggregate_measure_refs=aggregate_measure_formula,
+                )
+                # v1.4 M4 Step 4.1: when the resolved fragment originated
+                # from a previously-compiled calc-field that carries bind
+                # params, forward them to the current compiler context so
+                # the outer SQL's positional ``?`` binding stays aligned
+                # with the left-to-right emission order.
+                if compiled_calcs_params and name in compiled_calcs_params:
+                    nested = compiled_calcs_params.get(name) or []
+                    if nested:
+                        return sql, list(nested)
+                return sql
+            try:
+                compiled = self._get_formula_compiler().compile(
+                    cf.expression,
+                    _resolver,
+                    calculate_context=calculate_context,
+                )
+            except FormulaError:
+                # Propagate formula-level validation errors to the caller
+                # so the SemanticQueryService can turn them into a clear
+                # user-facing error message.  The attached ``expression``
+                # attribute on the error already carries the literal.
+                raise
+            base_sql = compiled.sql_fragment
+            base_params = list(compiled.bind_params)
+
+        # Register pre-wrap fragment + params for downstream calc refs. See
+        # Phase 2 requirement doc "Pre-wrap 注册语义" for rationale.  When
+        # the compiler emitted bind_params the sibling dict carries them so
+        # WHERE / HAVING / GROUP BY / ORDER BY inlining can forward them.
+        if compiled_calcs is not None:
+            compiled_calcs[cf.name] = base_sql
+        if compiled_calcs_params is not None:
+            compiled_calcs_params[cf.name] = list(base_params)
 
         if cf.is_window_function():
             # Window function: optionally wrap with agg, then add OVER()
@@ -702,13 +4103,18 @@ class SemanticQueryService(SemanticServiceResolver):
             over_parts: List[str] = []
             if cf.partition_by:
                 resolved_parts = [
-                    self._resolve_single_field(f, model, ensure_join) for f in cf.partition_by
+                    self._resolve_single_field(f, model, ensure_join, compiled_calcs)
+                    for f in cf.partition_by
                 ]
                 over_parts.append(f"PARTITION BY {', '.join(resolved_parts)}")
             if cf.window_order_by:
                 order_clauses = []
                 for wo in cf.window_order_by:
-                    col_sql = self._resolve_single_field(wo["field"], model, ensure_join)
+                    wo_field = wo["field"]
+                    self._validate_window_order_by_field(
+                        wo_field, cf.name, model, compiled_calcs
+                    )
+                    col_sql = self._resolve_single_field(wo_field, model, ensure_join, compiled_calcs)
                     direction = wo.get("dir", "asc").upper()
                     order_clauses.append(f"{col_sql} {direction}")
                 over_parts.append(f"ORDER BY {', '.join(order_clauses)}")
@@ -724,7 +4130,11 @@ class SemanticQueryService(SemanticServiceResolver):
             else:
                 base_sql = f"{agg_upper}({base_sql})"
 
-        return base_sql
+        if getattr(cf, "empty_default", None) is not None:
+            base_sql = f"COALESCE({base_sql}, ?)"
+            base_params.append(cf.empty_default)
+
+        return base_sql, base_params
 
     # ==================== Filtering ====================
 
@@ -735,6 +4145,8 @@ class SemanticQueryService(SemanticServiceResolver):
         filter_item: Dict[str, Any],
         ensure_join=None,
         root_builder: Optional[SqlQueryBuilder] = None,
+        compiled_calcs: Optional[Dict[str, str]] = None,
+        compiled_calcs_params: Optional[Dict[str, List[Any]]] = None,
     ) -> None:
         """Add a single filter condition with auto-JOIN support.
 
@@ -742,9 +4154,24 @@ class SemanticQueryService(SemanticServiceResolver):
           {"$or": [{...}, {...}]}  → (cond1 OR cond2)
           {"$and": [{...}, {...}]} → cond1 AND cond2
         Nesting is supported: {"$or": [{"$and": [...]}, {...}]}
+
+        v1.5 Phase 2: ``compiled_calcs`` lets slice conditions reference
+        previously-compiled calc fields by name.  The reference resolves
+        to the calc's pre-wrap SQL expression inlined in parentheses.
+
+        v1.4 M4 Step 4.1: ``compiled_calcs_params`` carries the sibling
+        FormulaCompiler bind_params for each calc name.  When a calc is
+        inlined into a filter fragment, its params are prepended in the
+        left-to-right emission order so the positional ``?`` binding
+        matches the final WHERE clause.
         """
         if root_builder is None:
             root_builder = builder
+
+        def _calc_params_for(name: str) -> List[Any]:
+            if compiled_calcs_params is None:
+                return []
+            return list(compiled_calcs_params.get(name, []))
 
         # --- Handle $or compound condition ---
         if "$or" in filter_item:
@@ -752,7 +4179,12 @@ class SemanticQueryService(SemanticServiceResolver):
             or_params: list[Any] = []
             for sub_item in filter_item["$or"]:
                 sub_builder = SqlQueryBuilder()
-                self._add_filter(sub_builder, model, sub_item, ensure_join, root_builder=root_builder)
+                self._add_filter(
+                    sub_builder, model, sub_item, ensure_join,
+                    root_builder=root_builder,
+                    compiled_calcs=compiled_calcs,
+                    compiled_calcs_params=compiled_calcs_params,
+                )
                 if sub_builder._query.where and sub_builder._query.where.conditions:
                     fragment = " AND ".join(sub_builder._query.where.conditions)
                     if len(sub_builder._query.where.conditions) > 1:
@@ -769,7 +4201,12 @@ class SemanticQueryService(SemanticServiceResolver):
         # --- Handle $and compound condition ---
         if "$and" in filter_item:
             for sub_item in filter_item["$and"]:
-                self._add_filter(builder, model, sub_item, ensure_join, root_builder=root_builder)
+                self._add_filter(
+                    builder, model, sub_item, ensure_join,
+                    root_builder=root_builder,
+                    compiled_calcs=compiled_calcs,
+                    compiled_calcs_params=compiled_calcs_params,
+                )
             return
 
         column = filter_item.get("column") or filter_item.get("field")
@@ -780,7 +4217,14 @@ class SemanticQueryService(SemanticServiceResolver):
             # Check for shorthand: {"fieldName": value}
             for k, v in filter_item.items():
                 if k not in ("column", "operator", "value", "op", "field", "values", "pattern", "from", "to"):
-                    resolved = model.resolve_field(k)
+                    # v1.5 Phase 2: calc field shorthand reference
+                    if compiled_calcs and k in compiled_calcs:
+                        builder.where(
+                            f"({compiled_calcs[k]}) = ?",
+                            params=_calc_params_for(k) + [v],
+                        )
+                        return
+                    resolved = model.resolve_field(k, dialect_name=self._field_formula_dialect_name())
                     if resolved:
                         if resolved["join_def"] and ensure_join:
                             ensure_join(resolved["join_def"])
@@ -788,29 +4232,45 @@ class SemanticQueryService(SemanticServiceResolver):
                     return
             return
 
-        # Resolve column through model field resolver
-        resolved = model.resolve_field(column)
-        if resolved:
-            col_expr = resolved["sql_expr"]
-            if resolved["join_def"] and ensure_join:
-                ensure_join(resolved["join_def"])
+        # v1.4 M4 Step 4.1: accumulate calc-field bind params inlined into
+        # the current filter fragment, in left-to-right emission order.
+        inline_calc_params: List[Any] = []
+
+        # v1.5 Phase 2: calc field reference (check before model resolve)
+        if compiled_calcs and column in compiled_calcs:
+            col_expr = f"({compiled_calcs[column]})"
+            inline_calc_params.extend(_calc_params_for(column))
         else:
-            # Fallback to fact table
-            dim = model.get_dimension(column)
-            col_expr = f"t.{dim.column}" if dim else f"t.{column}"
+            # Resolve column through model field resolver
+            resolved = model.resolve_field(column, dialect_name=self._field_formula_dialect_name())
+            if resolved:
+                col_expr = resolved["sql_expr"]
+                if resolved["join_def"] and ensure_join:
+                    ensure_join(resolved["join_def"])
+            else:
+                # Fallback to fact table
+                dim = model.get_dimension(column)
+                alias = model.get_table_alias_for_model(model.get_field_model_name(column))
+                col_expr = f"{alias}.{dim.column}" if dim else f"{alias}.{column}"
 
         # Check for $field value reference: {"value": {"$field": "otherField"}}
         # Generates field-to-field comparison: col_a > col_b (no bind param)
         if isinstance(value, dict) and "$field" in value:
             ref_field = value["$field"]
-            ref_resolved = model.resolve_field(ref_field)
-            if ref_resolved:
-                ref_expr = ref_resolved["sql_expr"]
-                if ref_resolved["join_def"] and ensure_join:
-                    ensure_join(ref_resolved["join_def"])
+            # v1.5 Phase 2: calc field on the reference side too
+            if compiled_calcs and ref_field in compiled_calcs:
+                ref_expr = f"({compiled_calcs[ref_field]})"
+                inline_calc_params.extend(_calc_params_for(ref_field))
             else:
-                ref_dim = model.get_dimension(ref_field)
-                ref_expr = f"t.{ref_dim.column}" if ref_dim else f"t.{ref_field}"
+                ref_resolved = model.resolve_field(ref_field, dialect_name=self._field_formula_dialect_name())
+                if ref_resolved:
+                    ref_expr = ref_resolved["sql_expr"]
+                    if ref_resolved["join_def"] and ensure_join:
+                        ensure_join(ref_resolved["join_def"])
+                else:
+                    ref_dim = model.get_dimension(ref_field)
+                    ref_alias = model.get_table_alias_for_model(model.get_field_model_name(ref_field))
+                    ref_expr = f"{ref_alias}.{ref_dim.column}" if ref_dim else f"{ref_alias}.{ref_field}"
 
             # Map operator to SQL
             op_map = {"=": "=", "eq": "=", "!=": "<>", "<>": "<>", "neq": "<>",
@@ -818,7 +4278,10 @@ class SemanticQueryService(SemanticServiceResolver):
                        "<": "<", "lt": "<", "<=": "<=", "lte": "<=",
                        "===": "=", "force_eq": "="}
             sql_op = op_map.get(operator, operator)
-            builder.where(f"{col_expr} {sql_op} {ref_expr}")
+            builder.where(
+                f"{col_expr} {sql_op} {ref_expr}",
+                params=inline_calc_params if inline_calc_params else None,
+            )
             return
 
         # Resolve value: support "values" key for IN, or range from filter_item
@@ -833,12 +4296,14 @@ class SemanticQueryService(SemanticServiceResolver):
                 effective_value = [from_val, to_val]
 
         hierarchy_condition = self._build_hierarchy_filter(
-            root_builder, model, column, operator, effective_value
+            root_builder, model, column, operator, effective_value, ensure_join=ensure_join
         )
         if hierarchy_condition:
             builder.where(
                 hierarchy_condition["condition"],
-                params=hierarchy_condition["params"] if hierarchy_condition["params"] else None,
+                params=(inline_calc_params + (hierarchy_condition["params"] or []))
+                if (inline_calc_params or hierarchy_condition["params"])
+                else None,
             )
             return
 
@@ -848,7 +4313,48 @@ class SemanticQueryService(SemanticServiceResolver):
             col_expr, operator, effective_value, params
         )
         if condition:
-            builder.where(condition, params=params if params else None)
+            merged_params = inline_calc_params + params
+            builder.where(condition, params=merged_params if merged_params else None)
+
+    def _resolve_join_parent(
+        self,
+        model: DbTableModelImpl,
+        join_def: DimensionJoinDef,
+    ) -> Optional[DimensionJoinDef]:
+        """Resolve the parent dimension for a joinTo dimension."""
+        if not join_def.join_to:
+            return None
+        parent_join = model.get_dimension_join(join_def.join_to)
+        if parent_join is None:
+            raise ValueError(
+                "DIMENSION_JOIN_PARENT_NOT_FOUND: "
+                f"dimension {join_def.name!r} declares joinTo={join_def.join_to!r} "
+                "but the parent dimension join is missing."
+            )
+        return parent_join
+
+    def _resolve_dimension_join_source(
+        self,
+        model: DbTableModelImpl,
+        join_def: DimensionJoinDef,
+        ensure_join: Optional[Callable[[DimensionJoinDef], None]] = None,
+    ) -> Tuple[str, str]:
+        """Return the SQL alias + FK column that should drive a dimension JOIN.
+
+        Top-level dimensions join from the model root alias. ``joinTo`` dimensions
+        instead join from their parent dimension alias, which may require the
+        parent JOIN to be materialized first.
+        """
+        parent_join = self._resolve_join_parent(model, join_def)
+        if parent_join is not None:
+            if ensure_join is not None:
+                ensure_join(parent_join)
+            return parent_join.get_alias(), join_def.foreign_key
+
+        root_alias = model.get_table_alias_for_model(
+            model.get_field_model_name(join_def.name)
+        )
+        return root_alias, join_def.foreign_key
 
     def _build_hierarchy_filter(
         self,
@@ -857,6 +4363,7 @@ class SemanticQueryService(SemanticServiceResolver):
         field_name: str,
         operator: str,
         value: Any,
+        ensure_join: Optional[Callable[[DimensionJoinDef], None]] = None,
     ) -> Optional[Dict[str, Any]]:
         """Build closure-table JOIN + WHERE for hierarchy operators."""
         op_class = self._hierarchy_registry.get(operator)
@@ -890,13 +4397,16 @@ class SemanticQueryService(SemanticServiceResolver):
         values = value if isinstance(value, list) else [value]
         params: List[Any] = []
         fragments: List[str] = []
+        fact_alias, fact_fk_column = self._resolve_dimension_join_source(
+            model, join_def, ensure_join=ensure_join
+        )
 
         self._ensure_join(
             builder,
             closure.qualified_table(),
             closure_alias,
             (
-                f"t.{join_def.foreign_key} = {closure_alias}."
+                f"{fact_alias}.{fact_fk_column} = {closure_alias}."
                 f"{closure.parent_column if op_instance.is_ancestor_direction else closure.child_column}"
             ),
         )
@@ -906,8 +4416,8 @@ class SemanticQueryService(SemanticServiceResolver):
                 built = HierarchyConditionBuilder.build_ancestors_condition(
                     closure=closure,
                     closure_alias=closure_alias,
-                    fact_fk_column=join_def.foreign_key,
-                    fact_alias="t",
+                    fact_fk_column=fact_fk_column,
+                    fact_alias=fact_alias,
                     value=single_value,
                     include_self=operator.lower() == "selfandancestorsof",
                 )
@@ -915,8 +4425,8 @@ class SemanticQueryService(SemanticServiceResolver):
                 built = HierarchyConditionBuilder.build_descendants_condition(
                     closure=closure,
                     closure_alias=closure_alias,
-                    fact_fk_column=join_def.foreign_key,
-                    fact_alias="t",
+                    fact_fk_column=fact_fk_column,
+                    fact_alias=fact_alias,
                     value=single_value,
                     include_self=operator.lower() == "selfanddescendantsof",
                 )
@@ -957,14 +4467,44 @@ class SemanticQueryService(SemanticServiceResolver):
         (e.g., asyncpg) that are bound to a specific event loop.
         """
         import asyncio
-        if not hasattr(self, '_sync_loop') or self._sync_loop is None or self._sync_loop.is_closed():
-            self._sync_loop = asyncio.new_event_loop()
-        return self._sync_loop
+        with self._sync_loop_lock:
+            if not hasattr(self, '_sync_loop') or self._sync_loop is None or self._sync_loop.is_closed():
+                self._sync_loop = asyncio.new_event_loop()
+            return self._sync_loop
+
+    def _run_async_in_sync(self, coro, *, timeout: int = 60):
+        """Run an awaitable on the service's persistent event loop.
+
+        Handles both cases: caller already has a running loop (delegates to
+        a worker thread so our persistent loop keeps async-pool ownership
+        stable) vs no loop running (runs directly). Used by both the
+        standard query path and the compose-query raw-SQL path.
+        """
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        def _run_on_sync_loop():
+            with self._sync_loop_lock:
+                sync_loop = self._get_sync_loop()
+                asyncio.set_event_loop(sync_loop)
+                return sync_loop.run_until_complete(coro)
+
+        if loop and loop.is_running():
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(_run_on_sync_loop)
+                return future.result(timeout=timeout)
+        return _run_on_sync_loop()
 
     def _execute_query(
         self,
         build_result: QueryBuildResult,
         model: DbTableModelImpl,
+        start: int = 0,
+        limit: Optional[int] = None,
     ) -> SemanticQueryResponse:
         """Execute the built query (synchronous wrapper).
 
@@ -975,8 +4515,6 @@ class SemanticQueryService(SemanticServiceResolver):
         pools between consecutive queries (fixes asyncpg/aiomysql
         "Event loop is closed" errors in embedded scenarios).
         """
-        import asyncio
-
         executor = self._resolve_executor(model)
         if executor is None:
             logger.warning("No database executor configured - returning empty result")
@@ -985,32 +4523,18 @@ class SemanticQueryService(SemanticServiceResolver):
                 columns_info=build_result.columns,
             )
 
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
-
-        if loop and loop.is_running():
-            # Already in an async context (e.g., FastAPI) —
-            # run in a thread with its own persistent loop
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                sync_loop = self._get_sync_loop()
-                future = pool.submit(
-                    sync_loop.run_until_complete,
-                    self._execute_query_async(build_result, executor=executor),
-                )
-                return future.result(timeout=60)
-        else:
-            # No running loop — use persistent loop directly
-            return self._get_sync_loop().run_until_complete(
-                self._execute_query_async(build_result, executor=executor)
-            )
+        return self._run_async_in_sync(
+            self._execute_query_async(
+                build_result, executor=executor, start=start, limit=limit,
+            ),
+        )
 
     async def _execute_query_async(
         self,
         build_result: QueryBuildResult,
         executor=None,
+        start: int = 0,
+        limit: Optional[int] = None,
     ) -> SemanticQueryResponse:
         """Execute the built query asynchronously.
 
@@ -1018,6 +4542,8 @@ class SemanticQueryService(SemanticServiceResolver):
             build_result: The built query with SQL and params
             executor: Optional executor override (for multi-datasource routing).
                      Falls back to self._executor if not provided.
+            start: Pagination start offset (for response pagination info).
+            limit: Pagination limit (for response pagination info).
         """
         executor = executor or self._executor
         if executor is None:
@@ -1045,6 +4571,9 @@ class SemanticQueryService(SemanticServiceResolver):
             columns_info=build_result.columns,
             total=result.total,
             sql=build_result.sql,
+            start=start,
+            limit=limit,
+            has_more=result.has_more,
         )
 
     def set_executor(self, executor) -> None:
@@ -1060,6 +4589,83 @@ class SemanticQueryService(SemanticServiceResolver):
         """
         self._executor_manager = manager
         logger.info(f"Executor manager set with {len(manager.list_names())} data sources: {manager.list_names()}")
+
+    def execute_sql(
+        self,
+        sql: str,
+        params: Optional[List[Any]] = None,
+        *,
+        route_model: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Execute raw SQL (already compiled by M6 ``compile_plan_to_sql``)
+        against the service's database executor and return rows.
+
+        The compose script runtime path produces ``ComposedSql(sql, params)``
+        and calls this method to get rows back; ``route_model`` drives
+        multi-datasource routing.
+
+        Parameters
+        ----------
+        sql:
+            Fully compiled SQL text.
+        params:
+            Positional bind parameters. ``None`` is treated as ``[]``.
+        route_model:
+            Optional QM model name. When provided and the model is
+            registered, executor resolution follows the same fallback
+            chain as :meth:`_resolve_executor` (named datasource →
+            manager default → service-level ``_executor``). When omitted
+            or the model is unknown, the fallback chain is walked
+            without the named-datasource step.
+
+        Returns
+        -------
+        List[Dict[str, Any]]
+            Row dicts from ``executor.execute``'s result. Empty list
+            when no rows match.
+
+        Raises
+        ------
+        RuntimeError
+            No executor configured, or the underlying executor returned
+            an error, or the DB driver raised during execution.
+        """
+        executor = self._resolve_execute_sql_executor(route_model)
+        if executor is None:
+            raise RuntimeError(
+                "SemanticQueryService.execute_sql: no executor configured; "
+                "host must call set_executor(...) before running compose scripts"
+            )
+
+        effective_params = params if isinstance(params, list) else (
+            list(params) if params else []
+        )
+
+        async def _run():
+            return await executor.execute(sql, effective_params)
+
+        try:
+            result = self._run_async_in_sync(_run())
+        except Exception as exc:
+            raise RuntimeError(f"execute_sql failed: {exc}") from exc
+
+        if getattr(result, "error", None):
+            raise RuntimeError(f"execute_sql failed: {result.error}")
+        return list(getattr(result, "rows", None) or [])
+
+    def _resolve_execute_sql_executor(self, route_model: Optional[str]):
+        """Executor resolution used by :meth:`execute_sql`. Unlike
+        :meth:`_resolve_executor` which needs a model instance, this
+        accepts an optional model name and walks the fallback chain."""
+        if route_model:
+            model = self.get_model(route_model)
+            if model is not None:
+                return self._resolve_executor(model)
+        if self._executor_manager is not None:
+            default = self._executor_manager.get_default()
+            if default is not None:
+                return default
+        return self._executor
 
     def _resolve_executor(self, model: DbTableModelImpl):
         """Resolve the appropriate executor for a model based on its source_datasource.
@@ -1106,6 +4712,11 @@ class SemanticQueryService(SemanticServiceResolver):
         if not table_model:
             return SemanticQueryResponse.from_error(f"Model not found: {model}")
 
+        # --- v1.2/v1.3: governance check + system_slice merge ---
+        governance_error, request = self._apply_query_governance(model, request)
+        if governance_error is not None:
+            return governance_error
+
         try:
             build_result = self._build_query(table_model, request)
         except Exception as e:
@@ -1127,23 +4738,37 @@ class SemanticQueryService(SemanticServiceResolver):
             if time.time() - cached_time < self._cache_ttl:
                 return cached_response
 
+        effective_limit = min(request.limit or self._default_limit, self._max_limit)
         try:
             executor = self._resolve_executor(table_model)
-            response = await self._execute_query_async(build_result, executor=executor)
+            response = await self._execute_query_async(
+                build_result, executor=executor,
+                start=request.start, limit=effective_limit,
+            )
         except Exception as e:
             logger.exception(f"Failed to execute query for model {model}")
-            return SemanticQueryResponse.from_legacy(
-                data=[],
-                sql=build_result.sql,
-                error=f"Query execution failed: {str(e)}",
-                warnings=build_result.warnings,
+            return self._sanitize_response_error(
+                model,
+                SemanticQueryResponse.from_legacy(
+                    data=[],
+                    sql=build_result.sql,
+                    error=f"Query execution failed: {str(e)}",
+                    warnings=build_result.warnings,
+                ),
             )
+
+        # Sanitize any executor-surfaced error before returning (BUG-007 v1.3)
+        self._sanitize_response_error(model, response)
 
         # Add debug info
         duration_ms = (time.time() - start_time) * 1000
         response.debug = DebugInfo(
             duration_ms=duration_ms,
-            extra={"sql": build_result.sql, "from_cache": False},
+            extra={
+                "sql": build_result.sql,
+                "params": list(build_result.params),
+                "from_cache": False,
+            },
         )
         if build_result.warnings:
             response.warnings = build_result.warnings
@@ -1208,20 +4833,54 @@ class SemanticQueryService(SemanticServiceResolver):
                 for col in model.columns.values()
             ]
 
+        # Predefined formula fields (from columnGroups.formula)
+        predefined = getattr(model, "predefined_calculated_fields", None)
+        if predefined:
+            metadata["predefined_formulas"] = [
+                {
+                    "name": calc.get("name"),
+                    "caption": calc.get("caption"),
+                    "type": calc.get("type"),
+                    "description": calc.get("description"),
+                    "usage": "predefined_formula",
+                }
+                for calc in predefined
+                if calc.get("name")
+            ]
+
         return metadata
 
-    def get_metadata_v3(self, model_names: Optional[List[str]] = None) -> Dict[str, Any]:
+    def get_metadata_v3(
+        self,
+        model_names: Optional[List[str]] = None,
+        visible_fields: Optional[List[str]] = None,
+        denied_columns: Optional[List[DeniedColumn]] = None,
+    ) -> Dict[str, Any]:
         """Build V3 metadata package — aligned with Java SemanticServiceV3Impl.
 
         Returns a combined metadata package with all models and their fields
         in the format expected by AI assistants (same as Java get_metadata).
+
+        Parameters
+        ----------
+        model_names
+            Subset of models to include. ``None`` → all.
+        visible_fields
+            v1.2 column governance: when set, only fields whose ``fieldName``
+            is in this list appear in the ``fields`` dict. ``None`` means no
+            filtering (v1.1 compat).
+        denied_columns
+            v1.3 physical column blacklist: when set, denied columns are
+            resolved per-model to denied QM fields which are then merged
+            with ``visible_fields`` for consistent trimming.
 
         Structure:
             {
                 "prompt": "usage instructions...",
                 "version": "v3",
                 "fields": { fieldName -> fieldInfo },
-                "models": { modelName -> modelInfo }
+                "models": { modelName -> modelInfo },
+                "physicalTables": [{"table": "...", "role": "..."}]  // v1.3
             }
         """
         target_models = model_names or list(self._models.keys())
@@ -1238,8 +4897,8 @@ class SemanticQueryService(SemanticServiceResolver):
             models_info[model_name] = {
                 "name": model.alias or model.name,
                 "factTable": model.source_table,
-                "purpose": model.description or "数据查询和分析",
-                "scenarios": ["数据查询", "统计分析", "报表生成"],
+                "purpose": model.description or "Data querying and analysis",
+                "scenarios": ["Data Querying", "Statistical Analysis", "Report Generation"],
             }
             ai_desc = getattr(model, 'ai_description', None)
             if ai_desc:
@@ -1253,16 +4912,42 @@ class SemanticQueryService(SemanticServiceResolver):
                 # Check hierarchy support from the corresponding dimension object
                 dim_obj = model.dimensions.get(dim_name)
                 is_hier = dim_obj is not None and dim_obj.supports_hierarchy_operators()
+                is_time_dim_root = self._is_date_dimension_root(dim_obj) and bool(join_def.caption_column)
+
+                if is_time_dim_root and dim_name not in fields:
+                    fields[dim_name] = {
+                        "name": dim_caption,
+                        "fieldName": dim_name,
+                        "meta": f"Time Dimension Root | {dim_obj.data_type.value}",
+                        "type": dim_obj.data_type.value.upper(),
+                        "filterType": "date",
+                        "filterable": True,
+                        "measure": False,
+                        "aggregatable": False,
+                        "sourceColumn": join_def.caption_column,
+                        "models": {},
+                    }
+                if is_time_dim_root:
+                    fields[dim_name]["models"][model_name] = {
+                        "description": join_def.description or f"{dim_caption} business date",
+                        "usage": "Used for absolute date filtering and timeWindow",
+                    }
 
                 # dim$id
                 id_fn = f"{dim_name}$id"
                 if id_fn not in fields:
+                    id_type = self._get_dimension_id_type(dim_obj)
+                    id_meta = (
+                        f"Date Dimension Key | {join_def.primary_key}"
+                        if self._is_date_dimension_root(dim_obj)
+                        else f"Dimension ID | {join_def.primary_key}"
+                    )
                     field_info: Dict[str, Any] = {
                         "name": f"{dim_caption}(ID)",
                         "fieldName": id_fn,
-                        "meta": f"维度ID | {join_def.primary_key}",
-                        "type": "INTEGER",
-                        "filterType": "dimension",
+                        "meta": id_meta,
+                        "type": id_type,
+                        "filterType": "date" if self._is_date_dimension_root(dim_obj) else "dimension",
                         "filterable": True,
                         "measure": False,
                         "aggregatable": False,
@@ -1273,18 +4958,21 @@ class SemanticQueryService(SemanticServiceResolver):
                         field_info["hierarchical"] = True
                         field_info["supportedOps"] = ["selfAndDescendantsOf", "selfAndAncestorsOf"]
                     fields[id_fn] = field_info
+                id_usage = "Used for exact filtering and sorting"
+                if self._is_date_dimension_root(dim_obj):
+                    id_usage = "Used for absolute date filtering, range filtering, aggregation, and sorting with ISO date/datetime string values"
                 fields[id_fn]["models"][model_name] = {
-                    "description": f"{dim_caption}(ID)",
-                    "usage": "用于精确查询、排序",
+                    "description": self._append_date_dimension_key_hint(f"{dim_caption}(ID)", dim_obj),
+                    "usage": id_usage,
                 }
 
                 # dim$caption
                 cap_fn = f"{dim_name}$caption"
                 if cap_fn not in fields:
                     fields[cap_fn] = {
-                        "name": f"{dim_caption}(名称)",
+                        "name": f"{dim_caption} (Caption)",
                         "fieldName": cap_fn,
-                        "meta": "维度名称 | TEXT",
+                        "meta": "Dimension Caption | TEXT",
                         "type": "TEXT",
                         "filterType": "dimension",
                         "filterable": True,
@@ -1293,8 +4981,8 @@ class SemanticQueryService(SemanticServiceResolver):
                         "models": {},
                     }
                 fields[cap_fn]["models"][model_name] = {
-                    "description": f"{dim_caption}显示名称",
-                    "usage": "用于展示、模糊查询",
+                    "description": f"{dim_caption} display name",
+                    "usage": "Used for display and fuzzy search",
                 }
 
                 # dim$property fields
@@ -1305,7 +4993,7 @@ class SemanticQueryService(SemanticServiceResolver):
                         fields[prop_fn] = {
                             "name": prop.caption or prop_name,
                             "fieldName": prop_fn,
-                            "meta": f"维度属性 | {prop.data_type}",
+                            "meta": f"Dimension Property | {prop.data_type}",
                             "type": prop.data_type.upper(),
                             "filterType": "text",
                             "filterable": True,
@@ -1334,7 +5022,7 @@ class SemanticQueryService(SemanticServiceResolver):
                     fields[dim_name] = {
                         "name": dim.alias or dim_name,
                         "fieldName": dim_name,
-                        "meta": f"属性 | {dim.data_type.value}",
+                        "meta": f"Attribute | {dim.data_type.value}",
                         "type": dim.data_type.value.upper(),
                         "filterType": "text",
                         "filterable": dim.filterable,
@@ -1356,7 +5044,7 @@ class SemanticQueryService(SemanticServiceResolver):
                     fields[col_name] = {
                         "name": col_def.alias or col_name,
                         "fieldName": col_name,
-                        "meta": f"属性 | {col_type}",
+                        "meta": f"Attribute | {col_type}",
                         "type": col_type.upper(),
                         "filterType": "text",
                         "filterable": True,
@@ -1376,7 +5064,7 @@ class SemanticQueryService(SemanticServiceResolver):
                     fields[measure_name] = {
                         "name": measure.alias or measure_name,
                         "fieldName": measure_name,
-                        "meta": f"度量 | 数值 | 默认聚合:{agg_name}",
+                        "meta": f"Measure | Number | Default Aggregation: {agg_name}",
                         "type": "NUMBER",
                         "filterType": "number",
                         "filterable": True,
@@ -1387,24 +5075,129 @@ class SemanticQueryService(SemanticServiceResolver):
                         "models": {},
                     }
                 fields[measure_name]["models"][model_name] = {
-                    "description": f"{measure.alias or measure_name} (聚合方式: {agg_name})",
+                    "description": f"{measure.alias or measure_name} (Aggregation: {agg_name})",
                 }
 
-        return {
+            # Predefined formula fields (from columnGroups.formula)
+            predefined = getattr(model, "predefined_calculated_fields", None)
+            if predefined:
+                for calc in predefined:
+                    calc_name = calc.get("name")
+                    if not calc_name or calc_name in fields:
+                        continue
+                    calc_type = (calc.get("type") or "NUMBER").upper()
+                    calc_caption = calc.get("caption") or calc_name
+                    calc_desc = calc.get("description") or ""
+                    fields[calc_name] = {
+                        "name": calc_caption,
+                        "fieldName": calc_name,
+                        "meta": f"Predefined Formula | {calc_type}",
+                        "type": calc_type,
+                        "filterType": "number",
+                        "filterable": False,
+                        "measure": True,
+                        "aggregatable": False,
+                        "usage": "predefined_formula",
+                        "description": calc_desc,
+                        "models": {},
+                    }
+                    fields[calc_name]["models"][model_name] = {
+                        "description": calc_desc or f"{calc_caption} (predefined formula)",
+                        "usage": "Reference directly in columns[]; do not redefine in calculatedFields[]",
+                    }
+
+        # --- v1.3: collect physical tables (deduplicated, single pass) ---
+        physical_tables: List[Dict[str, str]] = []
+        pt_seen: set = set()
+        for mn in target_models:
+            mapping = self.get_physical_column_mapping(mn)
+            if mapping:
+                for pt in mapping.get_physical_tables():
+                    t = pt["table"]
+                    if t not in pt_seen:
+                        pt_seen.add(t)
+                        physical_tables.append(pt)
+
+        # --- v1.2/v1.3 governance trimming · v1.6 F-3 fix: per-model ---
+        # _resolve_effective_visible now returns Dict[model_name, set] so that
+        # a DeniedColumn targeting one model's physical column does NOT strip
+        # the shared QM field from other models.
+        per_model_effective = self._resolve_effective_visible(
+            target_models, visible_fields, denied_columns,
+        )
+        if per_model_effective is not None:
+            filtered_fields: Dict[str, Any] = {}
+            for field_name, field_info in fields.items():
+                models_of_field: Dict[str, Any] = field_info.get("models", {})
+                is_formula = field_info.get("usage") == "predefined_formula"
+                kept_models: Dict[str, Any] = {}
+                for model_name, model_info in models_of_field.items():
+                    model_effective = per_model_effective.get(model_name)
+                    if model_effective is None:
+                        # Model has no mapping → treat as ungoverned; keep as-is.
+                        kept_models[model_name] = model_info
+                    elif is_formula:
+                        # --- Phase 2: fail-closed formula permission check ---
+                        # A predefined formula field is accessible only when ALL
+                        # of its referenced underlying QM fields are visible.
+                        # Extract referenced fields from the formula expression.
+                        # The expression is stored during model loading; we look
+                        # it up from the model's predefined_calculated_fields.
+                        model = self._models.get(model_name)
+                        formula_accessible = True
+                        if model:
+                            pcf_list = getattr(model, "predefined_calculated_fields", None) or []
+                            calc_field_map = {c.get("name"): c.get("expression") for c in pcf_list if c.get("name") and c.get("expression")}
+                            calc = next(
+                                (c for c in pcf_list if c.get("name") == field_name),
+                                None,
+                            )
+                            if calc:
+                                expression = calc.get("expression") or ""
+                                referenced = resolve_base_column_references(expression, calc_field_map)
+                                # Fail-closed: any denied reference → deny formula
+                                for ref_field in referenced:
+                                    # Strip dimension suffix (e.g. move$moveType → move)
+                                    base_ref = ref_field.split("$")[0] if "$" in ref_field else ref_field
+                                    if base_ref not in model_effective and ref_field not in model_effective:
+                                        formula_accessible = False
+                                        break
+                            else:
+                                # Expression not found → fail-closed
+                                formula_accessible = False
+                        if formula_accessible:
+                            kept_models[model_name] = model_info
+                    elif field_name in model_effective:
+                        kept_models[model_name] = model_info
+                if kept_models:
+                    new_info = dict(field_info)
+                    new_info["models"] = kept_models
+                    filtered_fields[field_name] = new_info
+            fields = filtered_fields
+
+        result: Dict[str, Any] = {
             "prompt": (
-                "## 使用说明 (V3版本)\n"
-                "- 字段名直接使用 fields 中的 fieldName\n"
-                "- 维度用 xxx$id(查询/过滤) 或 xxx$caption(展示)\n"
-                "- 度量默认带聚合，可用内联表达式如 sum(fieldName)\n"
-                "- 标记 hierarchical=true 的维度支持层级操作符: "
-                "selfAndDescendantsOf(值及其所有下级), selfAndAncestorsOf(值及其所有上级)\n"
+                "## Usage Notes (V3)\n"
+                "- Use the fieldName values from fields directly\n"
+                "- Use xxx$id for query/filtering or xxx$caption for display\n"
+                "- Measures already carry default aggregation; inline expressions such as sum(fieldName) are supported\n"
+                "- Fields marked hierarchical=true support hierarchy operators: "
+                "selfAndDescendantsOf(value and all descendants), selfAndAncestorsOf(value and all ancestors)\n"
             ),
             "version": "v3",
             "fields": fields,
             "models": models_info,
         }
+        if physical_tables:
+            result["physicalTables"] = physical_tables
+        return result
 
-    def get_metadata_v3_markdown(self, model_names: Optional[List[str]] = None) -> str:
+    def get_metadata_v3_markdown(
+        self,
+        model_names: Optional[List[str]] = None,
+        visible_fields: Optional[List[str]] = None,
+        denied_columns: Optional[List[DeniedColumn]] = None,
+    ) -> str:
         """Build V3 metadata as markdown — aligned with Java default format.
 
         Java's LocalDatasetAccessor hardcodes format="markdown" for get_metadata.
@@ -1416,71 +5209,360 @@ class SemanticQueryService(SemanticServiceResolver):
         Single model → detailed format with field tables
         Multiple models → compact index format
         """
-        target_names = model_names or list(self._models.keys())
+        target_names = self._dedupe_model_names(model_names or list(self._models.keys()))
         target_models = [(n, self._models[n]) for n in target_names if n in self._models]
 
         if not target_models:
-            return "# 暂无可用数据模型\n"
+            return "# No data models available\n"
+
+        # --- v1.2/v1.3 governance trimming · v1.6 F-3 fix: per-model ---
+        target_names_only = [n for n, _ in target_models]
+        per_model_visible = self._resolve_effective_visible(
+            target_names_only, visible_fields, denied_columns,
+        )
 
         if len(target_models) == 1:
-            return self._build_single_model_markdown(target_models[0][0], target_models[0][1])
+            # Single-model path: extract that model's effective set (or None).
+            target_name = target_models[0][0]
+            single_visible = (
+                per_model_visible.get(target_name)
+                if per_model_visible is not None
+                else None
+            )
+            return self._build_single_model_markdown(
+                target_name, target_models[0][1], visible_set=single_visible,
+            )
         else:
-            return self._build_multi_model_markdown(target_models)
+            # Multi-model path: pass the per-model dict; the builder applies
+            # each model's set independently inside its per-model loop.
+            return self._build_multi_model_markdown(
+                target_models, per_model_visible=per_model_visible,
+            )
+
+    def get_model_catalog(
+        self,
+        model_names: Optional[List[str]] = None,
+        visible_fields: Optional[List[str]] = None,
+        denied_columns: Optional[List[DeniedColumn]] = None,
+        llm_hints: Optional[Dict[str, Dict[str, Any]]] = None,
+        field_limit: int = 10,
+    ) -> Dict[str, Any]:
+        """Build a bridge-ready model catalog from structured metadata.
+
+        The canonical contract is JSON. Markdown, when needed, is rendered from
+        this DTO by :meth:`render_model_catalog_markdown` so callers do not need
+        to parse prompt text to apply permissions.
+        """
+        target_names = self._dedupe_model_names(model_names or list(self._models.keys()))
+        metadata = self.get_metadata_v3(
+            model_names=target_names,
+            visible_fields=visible_fields,
+            denied_columns=denied_columns,
+        )
+        fields = metadata.get("fields") or {}
+        model_info = metadata.get("models") or {}
+        hints_by_model = llm_hints or {}
+        preview_limit = max(0, int(field_limit or 0))
+
+        items: List[Dict[str, Any]] = []
+        visible_models: List[str] = []
+        for model_name in target_names:
+            model = self._models.get(model_name)
+            if not model or model_name not in model_info:
+                continue
+
+            visible_models.append(model_name)
+            info = model_info.get(model_name) or {}
+            field_names = [
+                field_name
+                for field_name, field_info in fields.items()
+                if model_name in ((field_info or {}).get("models") or {})
+            ]
+
+            physical_tables: List[str] = []
+            mapping = self.get_physical_column_mapping(model_name)
+            if mapping:
+                physical_tables = [
+                    entry["table"]
+                    for entry in mapping.get_physical_tables()
+                    if entry.get("table")
+                ]
+            elif getattr(model, "source_table", None):
+                physical_tables = [model.source_table]
+
+            item: Dict[str, Any] = {
+                "model": model_name,
+                "caption": info.get("name") or model.alias or model_name,
+                "description": (
+                    getattr(model, "ai_description", None)
+                    or model.description
+                    or info.get("purpose")
+                    or ""
+                ),
+                "fieldPreview": field_names[:preview_limit],
+                "fieldCount": len(field_names),
+            }
+            namespace = self._infer_catalog_namespace(model_name)
+            if namespace:
+                item["namespace"] = namespace
+            if physical_tables:
+                item["physicalTables"] = physical_tables
+            model_hints = hints_by_model.get(model_name)
+            if model_hints:
+                item["llmHints"] = dict(model_hints)
+            items.append(item)
+
+        return {
+            "models": visible_models,
+            "count": len(visible_models),
+            "recommendedNext": "dataset.describe_model_internal",
+            "items": items,
+        }
+
+    @staticmethod
+    def _dedupe_model_names(model_names: List[str]) -> List[str]:
+        seen: set[str] = set()
+        result: List[str] = []
+        for model_name in model_names:
+            if not model_name or model_name in seen:
+                continue
+            seen.add(model_name)
+            result.append(model_name)
+        return result
+
+    @staticmethod
+    def _infer_catalog_namespace(model_name: str) -> Optional[str]:
+        if ":" in model_name:
+            return model_name.split(":", 1)[0]
+        if model_name.startswith("Odoo"):
+            return "odoo"
+        return None
+
+    @staticmethod
+    def render_model_catalog_markdown(catalog: Dict[str, Any]) -> str:
+        """Render model catalog markdown from the canonical JSON DTO."""
+        lines = ["# Model Catalog", ""]
+        items = catalog.get("items") or []
+        if not items:
+            lines.append("No data models available.")
+            return "\n".join(lines)
+
+        recommended_next = catalog.get("recommendedNext")
+        if recommended_next:
+            lines.extend([
+                f"Next: call `{recommended_next}` with the chosen model for field details.",
+                "",
+            ])
+
+        for item in items:
+            model = item.get("model", "")
+            caption = item.get("caption") or model
+            description = item.get("description") or ""
+            lines.append(f"- **{caption}** (`{model}`)")
+            if description:
+                lines.append(f"  - Description: {description}")
+            physical_tables = item.get("physicalTables") or []
+            if physical_tables:
+                lines.append(f"  - Physical tables: {', '.join(physical_tables)}")
+            hints = item.get("llmHints") or {}
+            for key in ("recommendedFor", "notRecommendedFor", "keyFields"):
+                values = hints.get(key) or []
+                if values:
+                    label = key[0].upper() + key[1:]
+                    lines.append(f"  - {label}: {', '.join(values)}")
+            if hints.get("businessDateNote"):
+                lines.append(f"  - Business date: {hints['businessDateNote']}")
+            field_preview = item.get("fieldPreview") or []
+            if field_preview:
+                suffix = ""
+                field_count = item.get("fieldCount") or len(field_preview)
+                if field_count > len(field_preview):
+                    suffix = f" ... ({field_count} fields total)"
+                lines.append(f"  - Field preview: {', '.join(field_preview)}{suffix}")
+        return "\n".join(lines)
+
+    # ---------- Phase 2: formula permission helpers ----------
+
+    @staticmethod
+    def _is_formula_accessible(
+        calc: Dict[str, Any],
+        visible_set: Optional[set],
+        calc_field_map: Optional[Dict[str, str]] = None,
+    ) -> bool:
+        """Return True iff a predefined formula is accessible under the given visible set.
+
+        Fail-closed: if ``visible_set`` is set and ANY underlying QM field
+        referenced in the formula expression is absent from it, returns ``False``.
+
+        Args:
+            calc:        A predefined_calculated_fields entry dict with keys
+                         ``name``, ``expression``, …
+            visible_set: Effective visible QM-field names for the model,
+                         or ``None`` (no governance → always accessible).
+            calc_field_map: Optional mapping of calculated field names to expressions
+                            for recursive resolution.
+        """
+        if visible_set is None:
+            return True
+        expression = calc.get("expression") or ""
+        if not expression:
+            # No expression → fail-closed: don't expose unknown formula
+            return False
+        calc_field_map = calc_field_map or {}
+        referenced = resolve_base_column_references(expression, calc_field_map)
+        for ref_field in referenced:
+            base_ref = ref_field.split("$")[0] if "$" in ref_field else ref_field
+            if base_ref not in visible_set and ref_field not in visible_set:
+                return False
+        return True
 
     # ---------- Type description helpers (aligned with Java getDataTypeDescription) ----------
 
+
+    @staticmethod
+    def _get_time_role_hint(obj) -> str:
+        """Return a compact semantic hint string for timeRole / recommendedUse.
+
+        Reads from Pydantic model_extra when available, falling back to getattr.
+        Returns empty string when neither field is present.
+
+        Output format::
+
+            timeRole=business_date; recommendedUse=Primary payment business date ...
+
+        Pipes and newlines in recommendedUse are sanitized so markdown table
+        cells remain valid.
+        """
+        extra = {}
+        if hasattr(obj, "model_extra") and isinstance(obj.model_extra, dict):
+            extra = obj.model_extra
+        time_role = (
+            extra.get("timeRole") or extra.get("time_role")
+            or getattr(obj, "timeRole", None) or getattr(obj, "time_role", None)
+        )
+        recommended_use = (
+            extra.get("recommendedUse") or extra.get("recommended_use")
+            or getattr(obj, "recommendedUse", None)
+            or getattr(obj, "recommended_use", None)
+        )
+        if not time_role and not recommended_use:
+            return ""
+        parts = []
+        if time_role:
+            parts.append(f"timeRole={str(time_role).strip()}")
+        if recommended_use:
+            sanitized = (
+                str(recommended_use)
+                .replace("|", "｜")
+                .replace("\n", " ")
+                .replace("\r", "")
+                .strip()
+            )
+            parts.append(f"recommendedUse={sanitized}")
+        return "; ".join(parts)
+
+
     @staticmethod
     def _get_column_type_description(column_type) -> str:
-        """Map ColumnType enum to Chinese description (aligned with Java getDataTypeDescription)."""
+        """Map ColumnType enum to English description (aligned with Java getDataTypeDescription)."""
         if column_type is None:
-            return "文本"
+            return "Text"
         type_name = column_type.value.upper() if hasattr(column_type, 'value') else str(column_type).upper()
         mapping = {
-            "STRING": "文本",
-            "TEXT": "文本",
-            "INTEGER": "文本",   # Java maps INTEGER properties to 文本 by default
-            "LONG": "文本",
-            "FLOAT": "数值",
-            "DOUBLE": "数值",
-            "DECIMAL": "数值",
-            "MONEY": "金额",
-            "NUMBER": "数值",
-            "BOOLEAN": "布尔",
-            "BOOL": "布尔",
-            "DATE": "日期(yyyy-MM-dd)",
-            "DAY": "日期(yyyy-MM-dd)",
-            "DATETIME": "日期时间",
-            "TIMESTAMP": "日期时间",
-            "TIME": "文本",
-            "DICT": "字典",
-            "JSON": "文本",
+            "STRING": "Text",
+            "TEXT": "Text",
+            "INTEGER": "Text",   # Java maps INTEGER properties to Text by default
+            "LONG": "Text",
+            "FLOAT": "Number",
+            "DOUBLE": "Number",
+            "DECIMAL": "Number",
+            "MONEY": "Currency",
+            "NUMBER": "Number",
+            "BOOLEAN": "Boolean",
+            "BOOL": "Boolean",
+            "DATE": "Date (yyyy-MM-dd)",
+            "DAY": "Date (yyyy-MM-dd)",
+            "DATETIME": "Datetime",
+            "TIMESTAMP": "Datetime",
+            "TIME": "Text",
+            "DICT": "Dictionary",
+            "JSON": "Text",
         }
-        return mapping.get(type_name, "文本")
+        return mapping.get(type_name, "Text")
 
-    def _build_single_model_markdown(self, model_name: str, model: 'DbTableModelImpl') -> str:
-        """Build detailed markdown for a single model (aligned with Java buildSingleModelMarkdown)."""
+    @staticmethod
+    def _is_date_dimension_root(dim_obj) -> bool:
+        """Return true when a dimension root key is backed by a date-like column."""
+        return (
+            dim_obj is not None
+            and dim_obj.data_type in {ColumnType.DATE, ColumnType.DATETIME, ColumnType.TIMESTAMP}
+        )
+
+    @staticmethod
+    def _get_dimension_id_type(dim_obj) -> str:
+        """Return the exposed type for a dimension $id field."""
+        if SemanticQueryService._is_date_dimension_root(dim_obj):
+            return dim_obj.data_type.value.upper()
+        return "INTEGER"
+
+    @staticmethod
+    def _append_date_dimension_key_hint(description: str, dim_obj) -> str:
+        """Clarify date-like dimension keys so LLMs do not use numeric YYYYMMDD."""
+        if not SemanticQueryService._is_date_dimension_root(dim_obj):
+            return description
+        hint = "Use ISO date/datetime string values such as 2026-05-01; do not use numeric YYYYMMDD values."
+        return f"{description} {hint}".strip() if description else hint
+
+    @staticmethod
+    def _build_dimension_key_description(join_def, dim_obj, dim_caption: str) -> str:
+        """Build LLM-facing $id guidance without leaking physical modeling details."""
+        key_desc = getattr(join_def, "key_description", None)
+        if key_desc:
+            return SemanticQueryService._append_date_dimension_key_hint(key_desc, dim_obj)
+        if SemanticQueryService._is_date_dimension_root(dim_obj):
+            return SemanticQueryService._append_date_dimension_key_hint(
+                f"{dim_caption} business date",
+                dim_obj,
+            )
+        return getattr(join_def, "description", None) or ""
+
+    def _build_single_model_markdown(
+        self,
+        model_name: str,
+        model: 'DbTableModelImpl',
+        visible_set: Optional[set] = None,
+    ) -> str:
+        """Build detailed markdown for a single model (aligned with Java buildSingleModelMarkdown).
+
+        Parameters
+        ----------
+        visible_set
+            v1.2 governance: only include fields whose name is in this set.
+            ``None`` means no filtering.
+        """
         lines: List[str] = []
         alias = model.alias or model_name
+
+        def _visible(field_name: str) -> bool:
+            return visible_set is None or field_name in visible_set
 
         # Collect dimension field names for exclusion from properties section
         dimension_field_names: set = set()
 
         lines.append(f"# {model_name} - {alias}")
         lines.append("")
-        lines.append("## 模型信息")
-        lines.append(f"- 表名: {model.source_table}")
+        lines.append("## Model Information")
+        lines.append(f"- Table: {model.source_table}")
         # Primary key (aligned with Java: jdbcModel.getIdColumn())
         if model.primary_key:
-            lines.append(f"- 主键: {', '.join(model.primary_key)}")
+            lines.append(f"- Primary Key: {', '.join(model.primary_key)}")
         if model.description:
-            lines.append(f"- 说明: {model.description}")
+            lines.append(f"- Description: {model.description}")
         lines.append("")
 
         # Dimension JOIN fields
         if model.dimension_joins:
-            lines.append("## 维度字段")
-            lines.append("| 字段名 | 名称 | 类型 | 层级 | 说明 |")
-            lines.append("|--------|------|------|------|------|")
+            dim_rows: List[str] = []
             for jd in model.dimension_joins:
                 dc = jd.caption or jd.name
                 dim_obj = model.dimensions.get(jd.name)
@@ -1490,63 +5572,140 @@ class SemanticQueryService(SemanticServiceResolver):
                 caption_field = f"{jd.name}$caption"
                 dimension_field_names.add(id_field)
                 dimension_field_names.add(caption_field)
-                lines.append(f"| {id_field} | {dc}(ID) | INTEGER | {hier_label} | {jd.key_description or jd.description or ''} |")
-                lines.append(f"| {caption_field} | {dc}(名称) | TEXT | - | {dc}显示名称 |")
+                if _visible(id_field):
+                    dim_desc = self._build_dimension_key_description(jd, dim_obj, dc)
+                    _dim_trh = self._get_time_role_hint(jd) or self._get_time_role_hint(dim_obj)
+                    if _dim_trh:
+                        dim_desc = f"{dim_desc} [{_dim_trh}]".strip() if dim_desc else f"[{_dim_trh}]"
+                    dim_rows.append(f"| {id_field} | {dc}(ID) | {self._get_dimension_id_type(dim_obj)} | {hier_label} | {dim_desc} |")
+                if _visible(caption_field):
+                    dim_rows.append(f"| {caption_field} | {dc} (Caption) | TEXT | - | {dc} display name |")
                 for prop in jd.properties:
                     pn = prop.get_name()
                     prop_field = f"{jd.name}${pn}"
                     dimension_field_names.add(prop_field)
-                    lines.append(f"| {prop_field} | {prop.caption or pn} | {prop.data_type} | - | {prop.description or ''} |")
-            lines.append("")
+                    if _visible(prop_field):
+                        _prop_desc = prop.description or ""
+                        _trh = self._get_time_role_hint(prop)
+                        if _trh:
+                            _prop_desc = f"{_prop_desc} [{_trh}]".strip() if _prop_desc else f"[{_trh}]"
+                        dim_rows.append(f"| {prop_field} | {prop.caption or pn} | {prop.data_type} | - | {_prop_desc} |")
+            if dim_rows:
+                lines.append("## Dimension Fields")
+                lines.append("| Field Name | Label | Type | Hierarchy | Description |")
+                lines.append("|------------|-------|------|-----------|-------------|")
+                lines.extend(dim_rows)
+                lines.append("")
 
         # Fact table own properties (aligned with Java: queryModel.getQueryProperties())
         # Use model.columns (DbColumnDef) — the TM-defined properties, NOT model.dimensions
         if model.columns:
-            # Filter out columns already shown in dimension fields
+            # Filter out columns already shown in dimension fields + governance
             filtered_columns = {
                 name: col for name, col in model.columns.items()
-                if name not in dimension_field_names
+                if name not in dimension_field_names and _visible(name)
             }
             if filtered_columns:
-                lines.append("## 属性字段")
-                lines.append("| 字段名 | 名称 | 类型 | 说明 |")
-                lines.append("|--------|------|------|------|")
+                lines.append("## Attribute Fields")
+                lines.append("| Field Name | Label | Type | Description |")
+                lines.append("|------------|-------|------|-------------|")
                 for col_name, col in filtered_columns.items():
                     col_caption = col.alias or col_name
                     col_type = self._get_column_type_description(col.column_type)
                     col_desc = col.comment or ""
+                    _col_trh = self._get_time_role_hint(col)
+                    if _col_trh:
+                        col_desc = f"{col_desc} [{_col_trh}]".strip() if col_desc else f"[{_col_trh}]"
                     lines.append(f"| {col_name} | {col_caption} | {col_type} | {col_desc} |")
                 lines.append("")
 
         # Measure fields
         if model.measures:
-            lines.append("## 度量字段")
-            lines.append("| 字段名 | 名称 | 类型 | 聚合 | 说明 |")
-            lines.append("|--------|------|------|------|------|")
+            measure_rows: List[str] = []
             for m_name, measure in model.measures.items():
+                if not _visible(m_name):
+                    continue
                 m_alias = measure.alias or m_name
                 agg = measure.aggregation.value.upper() if measure.aggregation else "-"
                 m_desc = measure.description or ""
-                lines.append(f"| {m_name} | {m_alias} | NUMBER | {agg} | {m_desc} |")
-            lines.append("")
+                measure_rows.append(f"| {m_name} | {m_alias} | NUMBER | {agg} | {m_desc} |")
+            if measure_rows:
+                lines.append("## Measure Fields")
+                lines.append("| Field Name | Label | Type | Aggregation | Description |")
+                lines.append("|------------|-------|------|-------------|-------------|")
+                lines.extend(measure_rows)
+                lines.append("")
 
-        lines.append("## 使用提示")
-        lines.append("- 维度用 `xxx$id`(查询/过滤), `xxx$caption`(展示), `xxx$property`(维度属性)")
-        lines.append("- 度量支持内联聚合: `sum(salesAmount) as total`")
-        lines.append("- 系统自动处理 groupBy，通常无需手动指定")
-        lines.append("- 层级维度支持 `selfAndDescendantsOf`(值及其所有下级) 和 `selfAndAncestorsOf`(值及其所有上级) 操作符")
+        # Predefined formula fields (from columnGroups.formula)
+        predefined = getattr(model, "predefined_calculated_fields", None)
+        if predefined:
+            formula_rows: List[str] = []
+            calc_field_map = {c.get("name"): c.get("expression") for c in predefined if c.get("name") and c.get("expression")}
+            for calc in predefined:
+                calc_name = calc.get("name")
+                if not calc_name:
+                    continue
+                # Phase 2 fail-closed: check all referenced fields are visible.
+                # Formula names are NOT in the physical-column visible_set directly;
+                # instead check that every underlying field the formula references is.
+                if not self._is_formula_accessible(calc, visible_set, calc_field_map):
+                    continue
+                calc_caption = calc.get("caption") or calc_name
+                calc_type = (calc.get("type") or "NUMBER").upper()
+                calc_desc = calc.get("description") or ""
+                # Sanitize description for markdown table (replace pipes and newlines)
+                calc_desc = calc_desc.replace("|", "｜").replace("\n", " ").replace("\r", "")
+                formula_rows.append(f"| {calc_name} | {calc_caption} | {calc_type} | {calc_desc} |")
+            if formula_rows:
+                lines.append("## Predefined Formula Fields")
+                lines.append("")
+                lines.append("> These are pre-aggregated measures. Reference them directly in `columns[]` by name. Do NOT redefine them in `calculatedFields[]`.")
+                lines.append("")
+                lines.append("| Field Name | Label | Type | Description |")
+                lines.append("|------------|-------|------|-------------|")
+                lines.extend(formula_rows)
+                lines.append("")
+
+        lines.append("## Usage Tips")
+        lines.append("- Use `xxx$id` for query/filtering, `xxx$caption` for display, and `xxx$property` for dimension properties")
+        lines.append("- Measures support inline aggregation: `sum(salesAmount) as total`")
+        lines.append("- The system handles groupBy automatically in most cases")
+        lines.append("- Hierarchical dimensions support `selfAndDescendantsOf` (value and all descendants) and `selfAndAncestorsOf` (value and all ancestors)")
 
         return "\n".join(lines)
 
-    def _build_multi_model_markdown(self, models: List[tuple]) -> str:
-        """Build compact index markdown for multiple models (aligned with Java buildMultiModelMarkdown)."""
+    def _build_multi_model_markdown(
+        self,
+        models: List[tuple],
+        per_model_visible: Optional[Dict[str, set]] = None,
+        visible_set: Optional[set] = None,  # legacy compat — prefer per_model_visible
+    ) -> str:
+        """Build compact index markdown for multiple models (aligned with Java buildMultiModelMarkdown).
+
+        Parameters
+        ----------
+        per_model_visible
+            v1.6 F-3 fix: per-model effective visible set. When provided, the
+            ``_visible`` closure inside each model loop uses that model's
+            specific set. A missing model key means "no trimming for this model".
+        visible_set
+            Legacy parameter: flat set applied across all models. Kept for
+            backward compat; ignored when ``per_model_visible`` is provided.
+            Do not pass both.
+        """
         lines: List[str] = []
 
-        lines.append("# 数据模型语义索引 V3")
+        # Per-iteration visibility closure; reassigned inside the model loop.
+        current_visible: Optional[set] = visible_set
+
+        def _visible(field_name: str) -> bool:
+            return current_visible is None or field_name in current_visible
+
+        lines.append("# Semantic Model Index V3")
         lines.append("")
 
         # Model index
-        lines.append("## 模型索引")
+        lines.append("## Model Index")
         for model_name, model in models:
             alias = model.alias or model_name
             desc = model.description or ""
@@ -1554,59 +5713,112 @@ class SemanticQueryService(SemanticServiceResolver):
         lines.append("")
 
         # Field index
-        lines.append("## 字段索引")
+        lines.append("## Field Index")
         lines.append("")
-        lines.append("> 查询时使用缩进行中的「字段名」，而非标题中的业务名。")
+        lines.append("> Use the indented `fieldName` values in queries, not the business labels in section titles.")
         lines.append("")
 
         for model_name, model in models:
+            # v1.6 F-3: switch visibility closure to THIS model's effective set
+            # so that per-model filtering is applied (not a flat global set).
+            # When per_model_visible has no entry for this model, fall back to
+            # "no trimming" (current_visible = None).
+            if per_model_visible is not None:
+                current_visible = per_model_visible.get(model_name)
+
             alias = model.alias or model_name
             lines.append(f"### {alias}")
             lines.append("")
 
             # Dimension JOINs
             if model.dimension_joins:
-                lines.append("**维度**")
+                dim_lines: List[str] = []
                 for jd in model.dimension_joins:
                     dc = jd.caption or jd.name
                     dim_obj = model.dimensions.get(jd.name)
                     is_hier = dim_obj is not None and dim_obj.supports_hierarchy_operators()
-                    hier_hint = " 🔗层级" if is_hier else ""
-                    lines.append(f"- {dc}{hier_hint}")
-                    id_ops = " *(支持 selfAndDescendantsOf / selfAndAncestorsOf)*" if is_hier else ""
-                    lines.append(f"    - [field:{jd.name}$id] | ID, 用于查询/过滤{id_ops}")
-                    lines.append(f"    - [field:{jd.name}$caption] | 名称, 用于展示")
+                    hier_hint = " 🔗 hierarchical" if is_hier else ""
+                    sub_lines: List[str] = []
+                    id_field = f"{jd.name}$id"
+                    if _visible(id_field):
+                        id_ops = " *(supports selfAndDescendantsOf / selfAndAncestorsOf)*" if is_hier else ""
+                        sub_lines.append(f"    - [field:{id_field}] | ID, used for query/filtering{id_ops}")
+                    cap_field = f"{jd.name}$caption"
+                    if _visible(cap_field):
+                        sub_lines.append(f"    - [field:{cap_field}] | Caption, used for display")
                     for prop in jd.properties:
                         pn = prop.get_name()
-                        lines.append(f"    - [field:{jd.name}${pn}] | {prop.caption or pn}")
+                        prop_field = f"{jd.name}${pn}"
+                        if _visible(prop_field):
+                            _mp_trh = self._get_time_role_hint(prop)
+                            _mp_label = f"{prop.caption or pn}"
+                            if _mp_trh:
+                                _mp_label = f"{_mp_label} | {_mp_trh}"
+                            sub_lines.append(f"    - [field:{prop_field}] | {_mp_label}")
+                    if sub_lines:
+                        dim_lines.append(f"- {dc}{hier_hint}")
+                        dim_lines.extend(sub_lines)
+                if dim_lines:
+                    lines.append("**Dimensions**")
+                    lines.extend(dim_lines)
 
             # Fact table properties (use model.columns, NOT model.dimensions)
             if model.columns:
-                lines.append("")
-                lines.append("**属性**")
+                prop_lines: List[str] = []
                 for col_name, col in model.columns.items():
+                    if not _visible(col_name):
+                        continue
                     col_caption = col.alias or col_name
                     col_type = self._get_column_type_description(col.column_type)
-                    lines.append(f"- {col_caption}")
-                    lines.append(f"    - [field:{col_name}] | {col_type}")
+                    prop_lines.append(f"- {col_caption}")
+                    prop_lines.append(f"    - [field:{col_name}] | {col_type}")
+                if prop_lines:
+                    lines.append("")
+                    lines.append("**Attributes**")
+                    lines.extend(prop_lines)
 
             # Measures
             if model.measures:
-                lines.append("")
-                lines.append("**度量**")
+                measure_lines: List[str] = []
                 for m_name, measure in model.measures.items():
+                    if not _visible(m_name):
+                        continue
                     m_alias = measure.alias or m_name
                     agg = measure.aggregation.value.upper() if measure.aggregation else "SUM"
-                    lines.append(f"- {m_alias}")
-                    lines.append(f"    - [field:{m_name}] | {agg}")
+                    measure_lines.append(f"- {m_alias}")
+                    measure_lines.append(f"    - [field:{m_name}] | {agg}")
+                if measure_lines:
+                    lines.append("")
+                    lines.append("**Measures**")
+                    lines.extend(measure_lines)
+
+            # Predefined formula fields (from columnGroups.formula)
+            predefined = getattr(model, "predefined_calculated_fields", None)
+            if predefined:
+                formula_lines: List[str] = []
+                calc_field_map = {c.get("name"): c.get("expression") for c in predefined if c.get("name") and c.get("expression")}
+                for calc in predefined:
+                    calc_name = calc.get("name")
+                    if not calc_name:
+                        continue
+                    # Phase 2 fail-closed: verify all referenced underlying fields visible
+                    if not self._is_formula_accessible(calc, current_visible, calc_field_map):
+                        continue
+                    calc_caption = calc.get("caption") or calc_name
+                    formula_lines.append(f"- {calc_caption}")
+                    formula_lines.append(f"    - [field:{calc_name}] | predefined_formula — use directly in columns[]")
+                if formula_lines:
+                    lines.append("")
+                    lines.append("**Predefined Formulas** *(reference directly; do not redefine)*")
+                    lines.extend(formula_lines)
 
             lines.append("")
 
         # Usage
-        lines.append("## 使用提示")
-        lines.append("- 维度用 `xxx$id`(查询/过滤), `xxx$caption`(展示)")
-        lines.append("- 度量支持内联聚合: `sum(fieldName) as alias`")
-        lines.append("- 系统自动处理 groupBy，通常无需手动指定")
+        lines.append("## Usage Tips")
+        lines.append("- Use `xxx$id` for query/filtering and `xxx$caption` for display")
+        lines.append("- Measures support inline aggregation: `sum(fieldName) as alias`")
+        lines.append("- The system handles groupBy automatically in most cases")
 
         return "\n".join(lines)
 
@@ -1621,6 +5833,7 @@ class SemanticQueryService(SemanticServiceResolver):
             "model": model,
             "columns": sorted(request.columns),
             "slice": request.slice,
+            "having": request.having,
             "group_by": sorted(request.group_by) if request.group_by else [],
             "order_by": request.order_by,
             "limit": request.limit,

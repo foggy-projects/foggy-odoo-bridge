@@ -22,6 +22,7 @@ export const queryModel = {
             caption: 'Product Information',
             items: [
                 { ref: pt.id },
+                { ref: pt.name },
                 { ref: pt.defaultCode },
                 { ref: pt.detailedType },
                 { ref: pt.active },

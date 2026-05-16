@@ -58,9 +58,18 @@ export const model = {
 
     properties: [
         { column: 'id', caption: 'ID', type: 'INTEGER' },
-        // Odoo 17: product_template.name is JSONB
-        { column: 'name', caption: 'Product Name', type: 'STRING',
-          description: 'JSONB translatable field — use jsonbCaption in QM if needed' },
+        {
+            column: 'name',
+            name: 'name',
+            caption: 'Product Name',
+            type: 'STRING',
+            dialectFormulaDef: {
+                postgresql: {
+                    builder: (alias) => `${alias}.name ->> 'en_US'`
+                }
+            },
+            description: 'Odoo 17 JSONB translatable product name (en_US).'
+        },
         { column: 'default_code', caption: 'Internal Reference', type: 'STRING',
           description: 'SKU or internal reference code' },
         { column: 'detailed_type', caption: 'Product Type', type: 'STRING', dictRef: dicts.product_detailed_type },

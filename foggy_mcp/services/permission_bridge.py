@@ -310,10 +310,11 @@ def _compute_model_slices(env, uid, odoo_model, column_map=None):
     # Deny access and prompt user to add the field to TM/QM definitions.
     if ctx.unmapped_fields:
         raise PermissionFieldMappingError(
-            f"权限规则字段在 QM 模型中无对应映射，查询被拒绝（fail-closed）。"
-            f"未映射字段: {sorted(ctx.unmapped_fields)}。"
-            f"请在 TM/QM 模型定义中添加对应字段，或在 DIRECT_FIELD_MAP 中补充映射。"
-            f"Odoo 模型: {odoo_model}"
+            f"Permission rule fields are not mapped in the QM model; "
+            f"the query was denied fail-closed. "
+            f"Unmapped fields: {sorted(ctx.unmapped_fields)}. "
+            f"Add the fields to the TM/QM model definition or DIRECT_FIELD_MAP. "
+            f"Odoo model: {odoo_model}"
         )
 
     return slices

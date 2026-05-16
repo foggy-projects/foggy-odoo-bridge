@@ -1,9 +1,14 @@
 """FSScript Parser - Parses token stream into AST."""
 
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
 
 from foggy.fsscript.parser.tokens import Token, TokenType
 from foggy.fsscript.parser.lexer import FsscriptLexer
+
+if TYPE_CHECKING:
+    # Type-only import; real `dialect` instance is imported by callers and
+    # passed in at construction time. Keeps parser <-> dialect coupling minimal.
+    from foggy.fsscript.parser.dialect import FsscriptDialect
 from foggy.fsscript.parser.errors import (
     ParseError,
     UnexpectedTokenError,
@@ -11,6 +16,12 @@ from foggy.fsscript.parser.errors import (
     InvalidSyntaxError,
 )
 from foggy.fsscript.expressions.base import Expression
+from foggy.fsscript.expressions.sql_predicates import (
+    IsNullExpression,
+    BetweenExpression,
+    LikeExpression,
+    CastExpression,
+)
 from foggy.fsscript.expressions.literals import (
     LiteralExpression,
     NullExpression,
@@ -101,6 +112,8 @@ PRECEDENCE = {
     TokenType.LIKE: 11,
     TokenType.IN: 11,
     TokenType.INSTANCEOF: 11,
+    TokenType.IS: 11,        # SQL: IS [NOT] NULL
+    TokenType.BETWEEN: 11,   # SQL: [NOT] BETWEEN x AND y
 
     # Addition/Subtraction
     TokenType.PLUS: 12,
@@ -137,10 +150,25 @@ class FsscriptParser:
     - Error recovery
     """
 
-    def __init__(self, source: str):
-        """Initialize parser with source code."""
+    def __init__(
+        self,
+        source: str,
+        dialect: Optional["FsscriptDialect"] = None,
+    ):
+        """Initialize parser with source code.
+
+        Args:
+            source: FSScript source text.
+            dialect: Optional :class:`FsscriptDialect` controlling per-instance
+                keyword handling. ``None`` (default) preserves historical
+                FSScript behavior. See :mod:`foggy.fsscript.parser.dialect`.
+        """
         self.source = source
-        self._lexer = FsscriptLexer(source)
+        # Retained so nested parsers (e.g. for ${...} expressions inside
+        # template strings) inherit the same dialect rather than silently
+        # falling back to the default keyword set.
+        self._dialect = dialect
+        self._lexer = FsscriptLexer(source, dialect=dialect)
         self._current_token: Optional[Token] = None
         self._previous_token: Optional[Token] = None
         self._advance()
@@ -787,7 +815,7 @@ class FsscriptParser:
         if self._match(TokenType.MULTIPLY):
             self._expect(TokenType.AS)
             name = self._expect(TokenType.IDENTIFIER).value
-            self._expect(TokenType.FROM)
+            self._expect_import_from()
             module = self._expect(TokenType.STRING).value
             self._match(TokenType.SEMICOLON)
             return ImportExpression(
@@ -810,7 +838,7 @@ class FsscriptParser:
                 if not self._match(TokenType.COMMA):
                     break
             self._expect(TokenType.RBRACE)
-            self._expect(TokenType.FROM)
+            self._expect_import_from()
             module = self._expect(TokenType.STRING).value
             self._match(TokenType.SEMICOLON)
             return ImportExpression(
@@ -823,7 +851,7 @@ class FsscriptParser:
         # import defaultExport from 'module'
         if self._check(TokenType.IDENTIFIER):
             name = self._advance().value
-            self._expect(TokenType.FROM)
+            self._expect_import_from()
             module = self._expect(TokenType.STRING).value
             self._match(TokenType.SEMICOLON)
             return ImportExpression(
@@ -834,6 +862,19 @@ class FsscriptParser:
             )
 
         return NullExpression()
+
+    def _expect_import_from(self) -> Token:
+        """Expect the ``from`` import separator.
+
+        Compose Query dialect intentionally lets ``from`` be a callable
+        identifier.  That means import statements can see it as IDENTIFIER
+        instead of TokenType.FROM, so import parsing accepts both forms.
+        """
+        if self._check(TokenType.FROM):
+            return self._advance()
+        if self._check(TokenType.IDENTIFIER) and self._current().value == "from":
+            return self._advance()
+        return self._expect(TokenType.FROM)
 
     def _parse_block(self) -> BlockExpression:
         """Parse a block of statements."""
@@ -948,6 +989,43 @@ class FsscriptParser:
                                 TokenType.EOF):
                 break
 
+            # SQL 风格 `x not in (...)` —— 2-token lookahead。
+            # NOT 本身没有中缀优先级（只作前缀逻辑非），默认会让外层循环退出；
+            # 这里需要识别 NOT + IN 的组合，按 IN 的优先级（11）处理。
+            if current.type == TokenType.NOT:
+                COMP_PREC = PRECEDENCE.get(TokenType.IN, 11)
+                if COMP_PREC <= min_prec:
+                    break
+                saved = self._save_state()
+                self._advance()  # 试探消费 NOT
+                if self._check(TokenType.IN):
+                    not_token = saved["current_token"]
+                    self._advance()  # 消费 IN
+                    right = self._parse_in_rhs(COMP_PREC)
+                    left = BinaryExpression(
+                        left=left,
+                        operator=BinaryOperator.NOT_IN,
+                        right=right,
+                        line=not_token.line,
+                        column=not_token.column,
+                    )
+                    continue
+                # NOT BETWEEN x AND y
+                if self._check(TokenType.BETWEEN):
+                    not_token = saved["current_token"]
+                    self._advance()  # 消费 BETWEEN
+                    left = self._parse_between_rhs(left, not_token, negated=True)
+                    continue
+                # NOT LIKE pattern
+                if self._check(TokenType.LIKE):
+                    not_token = saved["current_token"]
+                    self._advance()  # 消费 LIKE
+                    left = self._parse_like_rhs(left, not_token, negated=True)
+                    continue
+                # 不是 NOT IN / NOT BETWEEN / NOT LIKE —— 回滚
+                self._restore_state(saved)
+                break
+
             prec = PRECEDENCE.get(current.type, -1)
             if prec <= min_prec:
                 break
@@ -1036,6 +1114,10 @@ class FsscriptParser:
         if token.type == TokenType.TYPEOF:
             return self._parse_typeof()
 
+        # CAST(expr AS type) — SQL prefix keyword function
+        if token.type == TokenType.CAST:
+            return self._parse_cast()
+
         # Spread (in array context)
         if token.type == TokenType.DOT_DOT_DOT:
             return self._parse_spread()
@@ -1082,10 +1164,17 @@ class FsscriptParser:
             TokenType.AND_AND: BinaryOperator.AND,
             TokenType.OR_OR: BinaryOperator.OR,
             TokenType.INSTANCEOF: BinaryOperator.INSTANCEOF,
+            TokenType.IN: BinaryOperator.IN,
         }
 
         if token.type in op_map:
-            right = self._parse_expression_with_precedence(prec)
+            # SQL 风格 `v in (1, 2, 3)` / `v in [1,2,3]` 右操作数走 _parse_in_rhs，
+            # 以便在 `in` / `not in` 上下文里把 `(a, b, c)` 识别成数组字面量；
+            # 不改动全局 `(...)` 语义（箭头参数 / 分组表达式）。
+            if token.type == TokenType.IN:
+                right = self._parse_in_rhs(prec)
+            else:
+                right = self._parse_expression_with_precedence(prec)
             return BinaryExpression(
                 left=left,
                 operator=op_map[token.type],
@@ -1126,7 +1215,158 @@ class FsscriptParser:
                 column=token.column,
             )
 
+        # SQL: IS [NOT] NULL
+        if token.type == TokenType.IS:
+            return self._parse_is_rhs(left, token)
+
+        # SQL: BETWEEN low AND high
+        if token.type == TokenType.BETWEEN:
+            return self._parse_between_rhs(left, token, negated=False)
+
+        # SQL: LIKE pattern (positive case; NOT LIKE handled in the NOT-lookahead block)
+        if token.type == TokenType.LIKE:
+            return self._parse_like_rhs(left, token, negated=False)
+
         raise InvalidSyntaxError(f"Unknown infix operator: {token.type.name}")
+
+    def _parse_in_rhs(self, prec: int) -> Expression:
+        """Parse the right-hand side of `in` / `not in`.
+
+        支持三种形态，与 Java `foggy-fsscript` `IN.resolveHaystack` 对齐：
+          - `(a, b, c)` —— 括号内逗号列表，直接产出 `ArrayExpression`
+          - `(expr)`    —— 单值括号，透明透传（等价于 `expr`）
+          - `()`        —— 空括号，视作空 `ArrayExpression`（对齐 Java 空集合）
+          - `[a, b, c]` —— 原生数组字面量，走 `_parse_prefix` → `_parse_array_literal`
+          - 其他        —— 标识符 / 调用 / 成员访问等任意表达式，按常规优先级
+        """
+        if self._check(TokenType.LPAREN):
+            lparen = self._advance()  # 消费 (
+            # 空括号 `()`
+            if self._check(TokenType.RPAREN):
+                self._advance()
+                return ArrayExpression(
+                    elements=[],
+                    line=lparen.line,
+                    column=lparen.column,
+                )
+            first = self.parse_expression()
+            # `(expr, expr, ...)` —— 逗号列表 → ArrayExpression
+            if self._check(TokenType.COMMA):
+                elements = [first]
+                while self._match(TokenType.COMMA):
+                    # 允许尾随逗号 `(a, b,)`（与 Python/JS array 习惯一致）
+                    if self._check(TokenType.RPAREN):
+                        break
+                    elements.append(self.parse_expression())
+                self._expect(TokenType.RPAREN)
+                return ArrayExpression(
+                    elements=elements,
+                    line=lparen.line,
+                    column=lparen.column,
+                )
+            # `(expr)` —— 单值括号透明透传
+            self._expect(TokenType.RPAREN)
+            return first
+
+        # `[1, 2, 3]` 或任意表达式走常规路径
+        return self._parse_expression_with_precedence(prec)
+
+    # -- SQL predicate helpers (Stage 6 / Phase 4) ----------------------- #
+
+    def _parse_is_rhs(self, left: Expression, is_token: Token) -> Expression:
+        """Parse ``IS [NOT] NULL`` after the IS token has been consumed."""
+        negated = False
+        if self._check(TokenType.NOT):
+            self._advance()
+            negated = True
+        self._expect(TokenType.NULL, "Expected NULL after IS [NOT]")
+        return IsNullExpression(
+            operand=left,
+            negated=negated,
+            line=is_token.line,
+            column=is_token.column,
+        )
+
+    def _parse_between_rhs(
+        self, left: Expression, token: Token, *, negated: bool
+    ) -> Expression:
+        """Parse ``BETWEEN low AND high`` after BETWEEN has been consumed."""
+        # Parse `low` at a high enough precedence to stop before AND.
+        # We parse as a prefix + limited-precedence expression so that
+        # `BETWEEN 1+2 AND 10` correctly binds `1+2` as the low bound.
+        # Precedence 11 is comparison level; arithmetic (12/13) binds tighter.
+        low = self._parse_expression_with_precedence(
+            PRECEDENCE.get(TokenType.AND, 6)
+        )
+        self._expect(TokenType.AND, "Expected AND in BETWEEN expression")
+        high = self._parse_expression_with_precedence(
+            PRECEDENCE.get(TokenType.AND, 6)
+        )
+        return BetweenExpression(
+            operand=left,
+            low=low,
+            high=high,
+            negated=negated,
+            line=token.line,
+            column=token.column,
+        )
+
+    def _parse_like_rhs(
+        self, left: Expression, token: Token, *, negated: bool
+    ) -> Expression:
+        """Parse ``LIKE pattern`` after LIKE has been consumed."""
+        pattern = self._parse_expression_with_precedence(
+            PRECEDENCE.get(TokenType.LIKE, 11)
+        )
+        return LikeExpression(
+            operand=left,
+            pattern=pattern,
+            negated=negated,
+            line=token.line,
+            column=token.column,
+        )
+
+    def _parse_cast(self) -> Expression:
+        """Parse ``CAST(expr AS type_name)``.
+
+        Called from ``_parse_prefix`` when the current token is ``CAST``.
+        """
+        cast_token = self._advance()  # consume CAST keyword token
+        self._expect(TokenType.LPAREN, "Expected '(' after CAST")
+        expr = self.parse_expression()
+        self._expect(TokenType.AS, "Expected AS in CAST expression")
+        # Read type name: may be compound, e.g. ``INTEGER``, ``VARCHAR(100)``,
+        # ``DOUBLE PRECISION``.  Consume identifier tokens and optional
+        # parenthesized args.
+        type_parts = []
+        if not self._check(TokenType.IDENTIFIER):
+            raise InvalidSyntaxError("Expected type name after CAST ... AS")
+        type_parts.append(self._advance().value)
+        # Allow multi-word types like ``DOUBLE PRECISION``
+        while self._check(TokenType.IDENTIFIER):
+            type_parts.append(self._advance().value)
+        # Optional parenthesized precision: VARCHAR(100), DECIMAL(10, 2)
+        if self._check(TokenType.LPAREN):
+            self._advance()
+            inner = []
+            while not self._check(TokenType.RPAREN):
+                if self._check(TokenType.EOF):
+                    raise UnexpectedEndOfInputError("Expected ')' in CAST type precision")
+                token = self._advance()
+                if token.type == TokenType.COMMA:
+                    inner.append(", ")
+                else:
+                    inner.append(str(token.value))
+            self._expect(TokenType.RPAREN)
+            type_parts[-1] = f"{type_parts[-1]}({''.join(inner)})"
+        self._expect(TokenType.RPAREN, "Expected ')' after CAST expression")
+        type_name = " ".join(type_parts)
+        return CastExpression(
+            operand=expr,
+            type_name=type_name,
+            line=cast_token.line,
+            column=cast_token.column,
+        )
 
     def _parse_postfix(self, left: Expression) -> Expression:
         """Parse postfix expression (call, member access, etc.)."""
@@ -1218,9 +1458,11 @@ class FsscriptParser:
             if p[0] == 'str':
                 result_parts.append(StringExpression(value=p[1]))
             elif p[0] == 'expr':
-                # Parse the expression string
+                # Parse the expression string. Inherit the outer parser's
+                # dialect so e.g. `if(...)` inside `${...}` follows the same
+                # keyword-override rules as the surrounding source.
                 expr_str = p[1]
-                expr_parser = FsscriptParser(expr_str)
+                expr_parser = FsscriptParser(expr_str, dialect=self._dialect)
                 try:
                     expr = expr_parser.parse_expression()
                     result_parts.append(expr)
@@ -1574,6 +1816,7 @@ class FsscriptParser:
             TokenType.RETURN, TokenType.IF, TokenType.ELSE,
             TokenType.FOR, TokenType.WHILE, TokenType.SWITCH,
             TokenType.CASE, TokenType.BREAK, TokenType.CONTINUE,
+            TokenType.AND, TokenType.OR,
             TokenType.FUNCTION, TokenType.VAR, TokenType.LET,
             TokenType.CONST, TokenType.EXPORT, TokenType.IMPORT,
             TokenType.FROM, TokenType.AS, TokenType.IN, TokenType.OF,
